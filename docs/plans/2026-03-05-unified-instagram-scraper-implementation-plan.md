@@ -13,11 +13,11 @@
 ### Task 1: Add Dependencies and CLI Skeleton
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/pyproject.toml`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/__init__.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_cli_app.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_entrypoint.py`
+- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/pyproject.toml`
+- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
+- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/__init__.py`
+- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_cli_app.py`
+- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_entrypoint.py`
 
 **Step 1: Write the failing test**
 
@@ -75,15 +75,24 @@ git commit -m "feat: add typer cli skeleton"
 ### Task 2: Add Typed CLI Config and Normalized Record Models
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/models.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/config.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_models.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_config.py`
+- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/models.py`
+- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/config.py`
+- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_models.py`
+- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_config.py`
 
 **Step 1: Write the failing test**
 
 ```python
+from pathlib import Path
+
+from instagram_scraper.config import AppConfig
 from instagram_scraper.models import PostRecord
+
+
+def test_app_config_defaults_output_dir_to_data() -> None:
+    config = AppConfig()
+    assert config.output_dir == Path("data")
+    assert config.limit is None
 
 
 def test_post_record_serializes_datetime_to_json_mode() -> None:
@@ -102,13 +111,26 @@ def test_post_record_serializes_datetime_to_json_mode() -> None:
 
 **Step 2: Run test to verify it fails**
 
-Run: `uv run python -m pytest tests/test_models.py::test_post_record_serializes_datetime_to_json_mode -v`
-Expected: FAIL because `models.py` does not exist.
+Run: `uv run python -m pytest tests/test_config.py::test_app_config_defaults_output_dir_to_data tests/test_models.py::test_post_record_serializes_datetime_to_json_mode -v`
+Expected: FAIL because `config.py` and `models.py` do not exist.
 
 **Step 3: Write minimal implementation**
 
 ```python
-from datetime import UTC, datetime
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class AppConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    output_dir: Path = Path("data")
+    limit: int | None = Field(default=None, ge=1)
+```
+
+```python
+from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
@@ -121,6 +143,17 @@ class PostRecord(BaseModel):
     post_url: str
     owner_username: str | None = None
     taken_at_utc: datetime | None = None
+
+
+class RunSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    run_id: str
+    mode: str
+    processed: int = 0
+    posts: int = 0
+    comments: int = 0
+    errors: int = 0
+    output_dir: Path
 ```
 
 **Step 4: Run test to verify it passes**
@@ -138,9 +171,9 @@ git commit -m "feat: add validated scraper models"
 ### Task 3: Add Rich Terminal Rendering for Run Summaries
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/presentation.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_presentation.py`
+- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/presentation.py`
+- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
+- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_presentation.py`
 
 **Step 1: Write the failing test**
 

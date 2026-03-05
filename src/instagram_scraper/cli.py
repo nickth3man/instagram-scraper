@@ -10,11 +10,13 @@ app.add_typer(scrape_app, name="scrape")
 
 @scrape_app.command("profile")
 def scrape_profile() -> None:
+    """Stub unified profile scraping command."""
     raise NotImplementedError
 
 
 @scrape_app.command("url")
 def scrape_url() -> None:
+    """Stub unified direct-URL scraping command."""
     raise NotImplementedError
 
 

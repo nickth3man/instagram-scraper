@@ -1,3 +1,6 @@
+# Copyright (c) 2026
+"""Rich terminal rendering helpers."""
+
 from rich.console import Console
 from rich.table import Table
 
@@ -5,6 +8,7 @@ from instagram_scraper.models import RunSummary
 
 
 def render_run_summary(console: Console, summary: RunSummary) -> None:
+    """Render a compact run summary table to the terminal."""
     table = Table(title="Scrape Summary")
     table.add_column("Field")
     table.add_column("Value")

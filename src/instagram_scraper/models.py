@@ -1,3 +1,6 @@
+# Copyright (c) 2026
+"""Normalized record models for scraper outputs and summaries."""
+
 from datetime import datetime
 from pathlib import Path
 
@@ -5,6 +8,8 @@ from pydantic import BaseModel, ConfigDict
 
 
 class PostRecord(BaseModel):
+    """Normalized post record emitted by scraper providers."""
+
     model_config = ConfigDict(extra="forbid")
 
     provider: str
@@ -16,6 +21,8 @@ class PostRecord(BaseModel):
 
 
 class RunSummary(BaseModel):
+    """Aggregate counts for a scraper run."""
+
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
