@@ -1,11 +1,15 @@
 import csv
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import instaloader
 from instaloader import Profile
 from instaloader.exceptions import InstaloaderException
+
+
+DEFAULT_DATA_DIR_FALLBACK = "data"
 
 
 def comment_to_dict(comment, parent_id=None):
@@ -21,7 +25,7 @@ def comment_to_dict(comment, parent_id=None):
         "parent_id": str(parent_id) if parent_id is not None else None,
         "created_at_utc": created_at,
         "text": getattr(comment, "text", None),
-        "likes_count": getattr(comment, "likes_count", None),
+        "comment_like_count": getattr(comment, "likes_count", None),
         "owner_username": owner_username,
         "owner_id": str(owner_id) if owner_id is not None else None,
     }
@@ -39,7 +43,8 @@ def main():
     target_username = args.username
     started_at = datetime.now(timezone.utc)
 
-    output_dir = Path("data") / target_username
+    data_dir = Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
+    output_dir = data_dir / target_username
     output_dir.mkdir(parents=True, exist_ok=True)
 
     loader = instaloader.Instaloader(
@@ -164,7 +169,7 @@ def main():
                 "parent_id",
                 "created_at_utc",
                 "text",
-                "likes_count",
+                "comment_like_count",
                 "owner_username",
                 "owner_id",
             ],

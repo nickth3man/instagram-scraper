@@ -5,6 +5,7 @@ import os
 import random
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,9 +13,32 @@ from pathlib import Path
 import requests
 
 
-DEFAULT_TOOL_DUMP_PATH = Path("data") / "tool_dump.json"
-DEFAULT_USERNAME = os.getenv("INSTAGRAM_USERNAME", "believerofbuckets")
-DEFAULT_OUTPUT_DIR = Path("data") / DEFAULT_USERNAME
+DEFAULT_DATA_DIR_FALLBACK = "data"
+DEFAULT_USERNAME_FALLBACK = "target_profile"
+DEFAULT_USER_AGENT = os.getenv(
+    "INSTAGRAM_USER_AGENT",
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/133.0.0.0 Safari/537.36"
+    ),
+)
+
+
+def default_data_dir() -> Path:
+    return Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
+
+
+def default_username() -> str:
+    return os.getenv("INSTAGRAM_USERNAME", DEFAULT_USERNAME_FALLBACK)
+
+
+def default_tool_dump_path() -> Path:
+    return default_data_dir() / "tool_dump.json"
+
+
+def default_output_dir() -> Path:
+    return default_data_dir() / default_username()
 
 COOKIE_HEADER = os.getenv("IG_COOKIE_HEADER", "")
 
@@ -39,8 +63,8 @@ class Config:
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool-dump-path", default=str(DEFAULT_TOOL_DUMP_PATH))
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--tool-dump-path", default=str(default_tool_dump_path()))
+    parser.add_argument("--output-dir", default=str(default_output_dir()))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--reset-output", action="store_true")
     parser.add_argument("--start-index", type=int, default=0)
@@ -113,7 +137,7 @@ def build_session(cookie_header: str) -> requests.Session:
     asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": DEFAULT_USER_AGENT,
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.instagram.com/",
@@ -181,6 +205,21 @@ def extract_shortcode(url: str) -> str | None:
 def fetch_media_id(
     session: requests.Session, post_url: str, shortcode: str, cfg: Config
 ) -> tuple[str | None, str | None]:
+    shortcode_info_url = (
+        f"https://www.instagram.com/api/v1/media/shortcode/{shortcode}/info/"
+    )
+    response, error = request_with_retry(session, shortcode_info_url, cfg)
+    if response is not None:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        items = payload.get("items") or []
+        if items:
+            media_id = items[0].get("id")
+            if media_id:
+                return str(media_id), None
+
     response, error = request_with_retry(session, post_url, cfg)
     if response is None:
         return None, error or "media_page_request_failed"
@@ -279,24 +318,74 @@ def fetch_comments(
     return comments, "comments_page_guard_exhausted"
 
 
+@contextmanager
+def locked_path(path: Path):
+    lock_path = path.with_suffix(f"{path.suffix}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write("\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    with locked_path(path):
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+
+
 def write_json_line(path: Path, payload: dict) -> None:
-    with path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    with locked_path(path):
+        with path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
 
 
 def ensure_csv_with_header(path: Path, header: list[str], reset: bool) -> None:
-    if reset and path.exists():
-        path.unlink()
-    if not path.exists():
-        with path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
-            writer.writeheader()
+    with locked_path(path):
+        if reset and path.exists():
+            path.unlink()
+        if not path.exists():
+            with path.open("w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=header)
+                writer.writeheader()
+                file.flush()
+                os.fsync(file.fileno())
 
 
 def append_csv_row(path: Path, header: list[str], row: dict) -> None:
-    with path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=header)
-        writer.writerow(row)
+    with locked_path(path):
+        with path.open("a", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=header)
+            writer.writerow(row)
+            file.flush()
+            os.fsync(file.fileno())
 
 
 def checkpoint_path(output_dir: Path) -> Path:
@@ -311,9 +400,7 @@ def load_checkpoint(output_dir: Path) -> dict | None:
 
 
 def save_checkpoint(output_dir: Path, state: dict) -> None:
-    checkpoint_path(output_dir).write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(checkpoint_path(output_dir), json.dumps(state, indent=2))
 
 
 def reset_output(output_dir: Path) -> None:
@@ -393,6 +480,22 @@ def run(cfg: Config) -> dict:
     comments_count = int(checkpoint.get("comments", 0)) if checkpoint else 1
     errors_count = int(checkpoint.get("errors", 0)) if checkpoint else 1
 
+    def persist_checkpoint(next_index: int, force: bool = False) -> None:
+        if force or processed % cfg.checkpoint_every == 0:
+            save_checkpoint(
+                output_dir,
+                {
+                    "started_at_utc": started_at,
+                    "updated_at_utc": iso_utc_now(),
+                    "next_index": next_index,
+                    "processed": processed,
+                    "posts": posts_count,
+                    "comments": comments_count,
+                    "errors": errors_count,
+                    "total_urls": len(urls),
+                },
+            )
+
     try:
         for index in range(start_index, end_index):
             post_url = urls[index]
@@ -410,6 +513,7 @@ def run(cfg: Config) -> dict:
                 append_csv_row(errors_csv, error_header, err)
                 errors_count += 1
                 processed += 1
+                persist_checkpoint(index + 1, force=True)
                 continue
 
             media_id, media_id_error = fetch_media_id(session, post_url, shortcode, cfg)
@@ -426,6 +530,7 @@ def run(cfg: Config) -> dict:
                 append_csv_row(errors_csv, error_header, err)
                 errors_count += 1
                 processed += 1
+                persist_checkpoint(index + 1, force=True)
                 randomized_delay(cfg)
                 continue
 
@@ -443,6 +548,7 @@ def run(cfg: Config) -> dict:
                 append_csv_row(errors_csv, error_header, err)
                 errors_count += 1
                 processed += 1
+                persist_checkpoint(index + 1, force=True)
                 randomized_delay(cfg)
                 continue
 
@@ -491,28 +597,14 @@ def run(cfg: Config) -> dict:
                 append_csv_row(errors_csv, error_header, err)
                 errors_count += 1
             processed += 1
-            if processed % cfg.checkpoint_every == 0:
-                save_checkpoint(
-                    output_dir,
-                    {
-                        "started_at_utc": started_at,
-                        "updated_at_utc": iso_utc_now(),
-                        "next_index": index + 1,
-                        "processed": processed,
-                        "posts": posts_count,
-                        "comments": comments_count,
-                        "errors": errors_count,
-                        "total_urls": len(urls),
-                    },
-                )
+            persist_checkpoint(index + 1)
             randomized_delay(cfg)
     finally:
         session.close()
 
     finished_at = iso_utc_now()
 
-    # Extract username from output directory name
-    username = output_dir.name if output_dir.name != "data" else "unknown"
+    username = output_dir.name or "unknown"
 
     summary = {
         "target_profile": username,
@@ -537,9 +629,7 @@ def run(cfg: Config) -> dict:
         },
     }
 
-    (output_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(output_dir / "summary.json", json.dumps(summary, indent=2))
     save_checkpoint(
         output_dir,
         {

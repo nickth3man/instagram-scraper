@@ -6,14 +6,35 @@ import random
 import re
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 
 
-DEFAULT_USERNAME = os.getenv("INSTAGRAM_USERNAME", "believerofbuckets")
-DEFAULT_OUTPUT_DIR = Path("data") / DEFAULT_USERNAME
+DEFAULT_DATA_DIR_FALLBACK = "data"
+DEFAULT_USERNAME_FALLBACK = "target_profile"
+DEFAULT_USER_AGENT = os.getenv(
+    "INSTAGRAM_USER_AGENT",
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/133.0.0.0 Safari/537.36"
+    ),
+)
+
+
+def default_data_dir() -> Path:
+    return Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
+
+
+def default_username() -> str:
+    return os.getenv("INSTAGRAM_USERNAME", DEFAULT_USERNAME_FALLBACK)
+
+
+def default_output_dir() -> Path:
+    return default_data_dir() / default_username()
 
 COOKIE_HEADER = os.getenv("IG_COOKIE_HEADER", "")
 
@@ -36,10 +57,11 @@ class Config:
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
-    parser.add_argument("--posts-csv", default=str(DEFAULT_OUTPUT_DIR / "posts.csv"))
+    defaults_output_dir = default_output_dir()
+    parser.add_argument("--output-dir", default=str(defaults_output_dir))
+    parser.add_argument("--posts-csv", default=str(defaults_output_dir / "posts.csv"))
     parser.add_argument(
-        "--comments-csv", default=str(DEFAULT_OUTPUT_DIR / "comments.csv")
+        "--comments-csv", default=str(defaults_output_dir / "comments.csv")
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--reset-output", action="store_true")
@@ -85,7 +107,7 @@ def build_session_with_cookie(cookie_header: str) -> requests.Session:
     asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": DEFAULT_USER_AGENT,
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.instagram.com/",
@@ -197,19 +219,66 @@ def extract_video_entries(media_info: dict) -> list[dict]:
     return entries
 
 
+@contextmanager
+def locked_path(path: Path):
+    lock_path = path.with_suffix(f"{path.suffix}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write("\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    with locked_path(path):
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+
+
 def ensure_csv(path: Path, header: list[str], reset_output: bool) -> None:
-    if reset_output and path.exists():
-        path.unlink()
-    if not path.exists():
-        with path.open("w", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
-            writer.writeheader()
+    with locked_path(path):
+        if reset_output and path.exists():
+            path.unlink()
+        if not path.exists():
+            with path.open("w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=header)
+                writer.writeheader()
+                file.flush()
+                os.fsync(file.fileno())
 
 
 def append_csv(path: Path, header: list[str], row: dict) -> None:
-    with path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=header)
-        writer.writerow(row)
+    with locked_path(path):
+        with path.open("a", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=header)
+            writer.writerow(row)
+            file.flush()
+            os.fsync(file.fileno())
 
 
 def load_comments_by_shortcode(comments_csv_path: Path) -> dict[str, list[dict]]:
@@ -243,9 +312,7 @@ def load_checkpoint(output_dir: Path) -> dict:
 
 
 def save_checkpoint(output_dir: Path, state: dict) -> None:
-    checkpoint_file(output_dir).write_text(
-        json.dumps(state, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(checkpoint_file(output_dir), json.dumps(state, indent=2))
 
 
 def download_video_file(
@@ -256,21 +323,40 @@ def download_video_file(
 ) -> tuple[bool, str | None]:
     if destination.exists() and destination.stat().st_size > 0:
         return True, None
+    if destination.exists() and destination.stat().st_size == 0:
+        destination.unlink()
 
     response, error = request_with_retry(session, video_url, cfg, stream=True)
     if response is None:
         return False, error or "video_download_request_failed"
 
+    temp_path = destination.with_name(
+        f"{destination.name}.{os.getpid()}.{time.time_ns()}.part"
+    )
     try:
-        with destination.open("wb") as file:
+        with temp_path.open("wb") as file:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     file.write(chunk)
-    except OSError as exc:
+            file.flush()
+            os.fsync(file.fileno())
+    except (OSError, requests.RequestException) as exc:
+        temp_path.unlink(missing_ok=True)
         return False, f"file_write_error:{exc.__class__.__name__}"
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
 
-    if destination.stat().st_size == 0:
+    if not temp_path.exists() or temp_path.stat().st_size == 0:
+        temp_path.unlink(missing_ok=True)
         return False, "video_file_empty"
+
+    try:
+        temp_path.replace(destination)
+    except OSError as exc:
+        temp_path.unlink(missing_ok=True)
+        return False, f"file_write_error:{exc.__class__.__name__}"
 
     return True, None
 
@@ -503,9 +589,7 @@ def run(cfg: Config) -> dict:
         "errors_csv": str(errors_csv),
         "checkpoint": str(checkpoint_file(cfg.output_dir)),
     }
-    (cfg.output_dir / "videos_summary.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
+    atomic_write_text(cfg.output_dir / "videos_summary.json", json.dumps(summary, indent=2))
     save_checkpoint(
         cfg.output_dir,
         {
