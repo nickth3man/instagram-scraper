@@ -1,8 +1,10 @@
 # Copyright (c) 2026
 """Provider for hashtag discovery mode."""
 
+from pathlib import Path
+
 from instagram_scraper.models import RunSummary, TargetRecord
-from instagram_scraper.providers.base import build_run_summary
+from instagram_scraper.providers.base import build_run_summary, build_target_record
 
 
 class HashtagScrapeProvider:
@@ -24,10 +26,11 @@ class HashtagScrapeProvider:
         """
         count = 1 if limit is None else max(1, limit)
         return [
-            TargetRecord(
+            build_target_record(
                 provider="http",
                 target_kind="hashtag_post",
                 target_value=f"{hashtag}:{index}",
+                mode="hashtag",
             )
             for index in range(count)
         ]
@@ -42,5 +45,10 @@ class HashtagScrapeProvider:
             A normalized summary for the hashtag discovery run.
 
         """
-        HashtagScrapeProvider.resolve_targets(hashtag=hashtag, limit=limit)
-        return build_run_summary("hashtag")
+        targets = HashtagScrapeProvider.resolve_targets(hashtag=hashtag, limit=limit)
+        output_dir = _.get("output_dir")
+        return build_run_summary(
+            "hashtag",
+            output_dir=output_dir if isinstance(output_dir, Path) else None,
+            counts={"processed": len(targets), "targets": len(targets)},
+        )

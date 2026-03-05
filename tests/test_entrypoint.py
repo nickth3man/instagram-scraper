@@ -9,6 +9,7 @@ def test_package_exports_cli_app() -> None:
     result = runner.invoke(module.app, ["scrape", "--help"])
     assert result.exit_code == 0
     assert "profile" in result.stdout
+    assert "urls" in result.stdout
 
 
 def test_root_help_mentions_scrape_subcommand() -> None:

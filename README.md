@@ -26,8 +26,28 @@ Run unified scrape modes:
 
 ```bash
 uv run instagram-scraper scrape profile --username example
-uv run instagram-scraper scrape url --post-url https://www.instagram.com/p/example/
-uv run instagram-scraper scrape hashtag --hashtag cats --has-auth
+uv run instagram-scraper scrape url --url https://www.instagram.com/p/example/
+uv run instagram-scraper scrape urls --input data/tool_dump.json
+uv run instagram-scraper scrape hashtag --hashtag cats --cookie-header "sessionid=..."
+uv run instagram-scraper scrape followers --username example --cookie-header "sessionid=..."
+uv run instagram-scraper scrape stories --username example --cookie-header "sessionid=..."
+```
+
+Shared options implemented today:
+
+```bash
+--output-dir
+--limit
+--cookie-header
+```
+
+Additional mode-specific support:
+
+```bash
+scrape urls: --resume --reset-output
+scrape likers: --posts-limit
+scrape commenters: --posts-limit
+scrape stories: exactly one of --username or --hashtag
 ```
 
 Legacy entrypoints remain available:

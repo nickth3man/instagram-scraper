@@ -292,6 +292,48 @@ def run(cfg: Config) -> dict[str, object]:
     return summary
 
 
+def run_url_scrape(
+    *,
+    urls: list[str],
+    output_dir: Path,
+    cookie_header: str,
+    resume: bool = False,
+    reset_output: bool = False,
+) -> dict[str, object]:
+    """Run the browser-dump scraper for an explicit list of post URLs.
+
+    Returns
+    -------
+    dict[str, object]
+        Summary metadata for the completed scrape.
+
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    tool_dump_path = output_dir / "tool_dump.json"
+    tool_dump_path.write_text(
+        json.dumps({"count": len(urls), "urls": urls}, indent=2),
+        encoding="utf-8",
+    )
+    return run(
+        Config(
+            tool_dump_path=tool_dump_path,
+            output_dir=output_dir,
+            resume=resume,
+            reset_output=reset_output,
+            start_index=0,
+            limit=None,
+            checkpoint_every=20,
+            max_comment_pages=100,
+            min_delay=0.05,
+            max_delay=0.2,
+            request_timeout=30,
+            max_retries=5,
+            base_retry_seconds=2.0,
+            cookie_header=cookie_header,
+        ),
+    )
+
+
 def main() -> None:
     """Run the browser-dump scraper and emit the final summary as JSON."""
     summary = run(parse_args())

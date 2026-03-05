@@ -1,8 +1,10 @@
 # Copyright (c) 2026
 """Provider for location discovery mode."""
 
+from pathlib import Path
+
 from instagram_scraper.models import RunSummary, TargetRecord
-from instagram_scraper.providers.base import build_run_summary
+from instagram_scraper.providers.base import build_run_summary, build_target_record
 
 
 class LocationScrapeProvider:
@@ -24,10 +26,11 @@ class LocationScrapeProvider:
         """
         count = 1 if limit is None else max(1, limit)
         return [
-            TargetRecord(
+            build_target_record(
                 provider="http",
                 target_kind="location_post",
                 target_value=f"{location}:{index}",
+                mode="location",
             )
             for index in range(count)
         ]
@@ -47,5 +50,13 @@ class LocationScrapeProvider:
             A normalized summary for the location discovery run.
 
         """
-        LocationScrapeProvider.resolve_targets(location=location, limit=limit)
-        return build_run_summary("location")
+        targets = LocationScrapeProvider.resolve_targets(
+            location=location,
+            limit=limit,
+        )
+        output_dir = _.get("output_dir")
+        return build_run_summary(
+            "location",
+            output_dir=output_dir if isinstance(output_dir, Path) else None,
+            counts={"processed": len(targets), "targets": len(targets)},
+        )
