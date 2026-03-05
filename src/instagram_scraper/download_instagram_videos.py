@@ -12,7 +12,6 @@ from pathlib import Path
 
 import requests
 
-
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
 DEFAULT_USER_AGENT = os.getenv(
@@ -35,6 +34,7 @@ def default_username() -> str:
 
 def default_output_dir() -> Path:
     return default_data_dir() / default_username()
+
 
 COOKIE_HEADER = os.getenv("IG_COOKIE_HEADER", "")
 
@@ -61,7 +61,7 @@ def parse_args() -> Config:
     parser.add_argument("--output-dir", default=str(defaults_output_dir))
     parser.add_argument("--posts-csv", default=str(defaults_output_dir / "posts.csv"))
     parser.add_argument(
-        "--comments-csv", default=str(defaults_output_dir / "comments.csv")
+        "--comments-csv", default=str(defaults_output_dir / "comments.csv"),
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--reset-output", action="store_true")
@@ -163,7 +163,7 @@ def request_with_retry(
 
 
 def fetch_media_info(
-    session: requests.Session, media_id: str, cfg: Config
+    session: requests.Session, media_id: str, cfg: Config,
 ) -> tuple[dict | None, str | None]:
     url = f"https://www.instagram.com/api/v1/media/{media_id}/info/"
     response, error = request_with_retry(session, url, cfg)
@@ -273,12 +273,11 @@ def ensure_csv(path: Path, header: list[str], reset_output: bool) -> None:
 
 
 def append_csv(path: Path, header: list[str], row: dict) -> None:
-    with locked_path(path):
-        with path.open("a", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
-            writer.writerow(row)
-            file.flush()
-            os.fsync(file.fileno())
+    with locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=header)
+        writer.writerow(row)
+        file.flush()
+        os.fsync(file.fileno())
 
 
 def load_comments_by_shortcode(comments_csv_path: Path) -> dict[str, list[dict]]:
@@ -331,7 +330,7 @@ def download_video_file(
         return False, error or "video_download_request_failed"
 
     temp_path = destination.with_name(
-        f"{destination.name}.{os.getpid()}.{time.time_ns()}.part"
+        f"{destination.name}.{os.getpid()}.{time.time_ns()}.part",
     )
     try:
         with temp_path.open("wb") as file:
@@ -500,7 +499,7 @@ def run(cfg: Config) -> dict:
             ensure_csv(post_dir / "comments.csv", comments_header, reset_output=False)
             if post_comments:
                 with (post_dir / "comments.csv").open(
-                    "w", newline="", encoding="utf-8"
+                    "w", newline="", encoding="utf-8",
                 ) as file:
                     writer = csv.DictWriter(file, fieldnames=comments_header)
                     writer.writeheader()
@@ -515,7 +514,7 @@ def run(cfg: Config) -> dict:
                 destination = post_dir / filename
 
                 ok, download_error = download_video_file(
-                    session, video_url, destination, cfg
+                    session, video_url, destination, cfg,
                 )
                 if not ok:
                     append_csv(
@@ -556,7 +555,7 @@ def run(cfg: Config) -> dict:
                 "video_files": downloaded_for_post,
             }
             (post_dir / "metadata.json").write_text(
-                json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
+                json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8",
             )
 
             processed += 1

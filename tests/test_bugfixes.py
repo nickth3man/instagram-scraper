@@ -20,14 +20,14 @@ def test_no_hardcoded_specific_username_literals() -> None:
 
 
 def test_browser_dump_defaults_respect_data_dir_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("INSTAGRAM_DATA_DIR", str(tmp_path / "ig-data"))
     monkeypatch.delenv("INSTAGRAM_USERNAME", raising=False)
     monkeypatch.setattr(sys, "argv", ["prog"])
 
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump"
+        "instagram_scraper.scrape_instagram_from_browser_dump",
     )
     module = importlib.reload(module)
 
@@ -38,7 +38,7 @@ def test_browser_dump_defaults_respect_data_dir_env(
 
 def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump"
+        "instagram_scraper.scrape_instagram_from_browser_dump",
     )
 
     class FakeJsonResponse:
@@ -90,10 +90,10 @@ def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_checkpoint_saved_after_error_before_crash(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump"
+        "instagram_scraper.scrape_instagram_from_browser_dump",
     )
 
     tool_dump = tmp_path / "tool_dump.json"
@@ -105,7 +105,7 @@ def test_checkpoint_saved_after_error_before_crash(
                     "https://www.instagram.com/not-a-post/",
                     "https://www.instagram.com/p/SHORTCODE/",
                 ],
-            }
+            },
         ),
         encoding="utf-8",
     )
@@ -114,7 +114,7 @@ def test_checkpoint_saved_after_error_before_crash(
         def close(self) -> None:
             return None
 
-    def fake_build_session(cookie_header: str):  # noqa: ANN001
+    def fake_build_session(cookie_header: str):
         return DummySession()
 
     def crash_fetch_media_id(session, post_url, shortcode, cfg):  # noqa: ANN001
@@ -150,7 +150,7 @@ def test_checkpoint_saved_after_error_before_crash(
 
 
 def test_download_video_file_cleans_partial_file_on_write_error(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     class FakeResponse:
         def iter_content(self, chunk_size: int):  # noqa: ARG002

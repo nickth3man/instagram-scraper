@@ -7,11 +7,10 @@ import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
-
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
@@ -39,6 +38,7 @@ def default_tool_dump_path() -> Path:
 
 def default_output_dir() -> Path:
     return default_data_dir() / default_username()
+
 
 COOKIE_HEADER = os.getenv("IG_COOKIE_HEADER", "")
 
@@ -98,7 +98,7 @@ def parse_args() -> Config:
 
 
 def iso_utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def load_urls_from_tool_dump(path: Path) -> list[str]:
@@ -203,7 +203,7 @@ def extract_shortcode(url: str) -> str | None:
 
 
 def fetch_media_id(
-    session: requests.Session, post_url: str, shortcode: str, cfg: Config
+    session: requests.Session, post_url: str, shortcode: str, cfg: Config,
 ) -> tuple[str | None, str | None]:
     shortcode_info_url = (
         f"https://www.instagram.com/api/v1/media/shortcode/{shortcode}/info/"
@@ -242,7 +242,7 @@ def fetch_media_id(
 
 
 def fetch_media_info(
-    session: requests.Session, media_id: str, cfg: Config
+    session: requests.Session, media_id: str, cfg: Config,
 ) -> tuple[dict | None, str | None]:
     url = f"https://www.instagram.com/api/v1/media/{media_id}/info/"
     response, error = request_with_retry(session, url, cfg)
@@ -265,7 +265,7 @@ def fetch_media_info(
 
 
 def fetch_comments(
-    session: requests.Session, media_id: str, cfg: Config
+    session: requests.Session, media_id: str, cfg: Config,
 ) -> tuple[list[dict], str | None]:
     comments = []
     max_id = None
@@ -305,7 +305,7 @@ def fetch_comments(
                     "comment_like_count": comment.get("comment_like_count"),
                     "owner_username": user.get("username"),
                     "owner_id": str(user.get("pk") or ""),
-                }
+                },
             )
 
         has_more = bool(payload.get("has_more_comments"))
@@ -360,11 +360,10 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def write_json_line(path: Path, payload: dict) -> None:
-    with locked_path(path):
-        with path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            file.flush()
-            os.fsync(file.fileno())
+    with locked_path(path), path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        file.flush()
+        os.fsync(file.fileno())
 
 
 def ensure_csv_with_header(path: Path, header: list[str], reset: bool) -> None:
@@ -380,12 +379,11 @@ def ensure_csv_with_header(path: Path, header: list[str], reset: bool) -> None:
 
 
 def append_csv_row(path: Path, header: list[str], row: dict) -> None:
-    with locked_path(path):
-        with path.open("a", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=header)
-            writer.writerow(row)
-            file.flush()
-            os.fsync(file.fileno())
+    with locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=header)
+        writer.writerow(row)
+        file.flush()
+        os.fsync(file.fileno())
 
 
 def checkpoint_path(output_dir: Path) -> Path:
