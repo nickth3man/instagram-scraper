@@ -34,6 +34,8 @@ def comment_to_dict(
         A JSON-serializable representation of the comment.
 
     """
+    # Instaloader gives us rich Python objects. The scraper output needs plain
+    # strings, numbers, and `None` so it can be saved as JSON and CSV.
     owner = getattr(comment, "owner", None)
     owner_username = getattr(owner, "username", None)
     owner_id = getattr(owner, "userid", None)
@@ -61,6 +63,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _output_dir(username: str) -> Path:
+    # Keep all files for one Instagram account inside the same folder.
     data_dir = Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
     return data_dir / username
 
@@ -71,8 +74,10 @@ def _collect_comments(
     comments: list[dict[str, int | str | None]] = []
     try:
         for comment in post.get_comments():
+            # Store the top-level comment first.
             comments.append(_comment_row(comment, post.shortcode))
             comments.extend(
+                # Replies become extra rows linked back to the parent comment.
                 _comment_row(answer, post.shortcode, parent_id=comment.id)
                 for answer in list(getattr(comment, "answers", []))
             )
@@ -105,6 +110,8 @@ def _iter_post_rows(
     for post in profile.get_posts():
         post_comments, extraction_error = _collect_comments(post)
         if extraction_error and post.comments != 0:
+            # If Instagram reported comments but we failed to fetch them, record
+            # the failure and skip this post instead of writing partial data.
             extraction_errors.append(
                 {
                     "post_shortcode": post.shortcode,
@@ -145,6 +152,8 @@ def _write_posts_csv(posts_csv_path: Path, posts: Iterable[dict[str, object]]) -
         writer = csv.DictWriter(posts_file, fieldnames=fieldnames)
         writer.writeheader()
         for post in posts:
+            # Only write the simple summary columns here. The nested `comments`
+            # list stays in the JSON file instead.
             writer.writerow({key: post[key] for key in fieldnames})
 
 
@@ -176,6 +185,8 @@ def main() -> None:
     started_at = datetime.now(UTC)
     output_dir = _output_dir(target_username)
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Disable downloads we do not need so this command focuses on metadata and
+    # comments instead of saving media files.
     loader = instaloader.Instaloader(
         dirname_pattern="{target}",
         filename_pattern="{shortcode}",
@@ -196,6 +207,8 @@ def main() -> None:
     )
     finished_at = datetime.now(UTC)
 
+    # JSON keeps the full nested structure, which is helpful if another program
+    # wants to inspect everything about a post in one file.
     dataset = {
         "target_profile": target_username,
         "source_url": f"https://www.instagram.com/{target_username}/?hl=en",
@@ -216,6 +229,7 @@ def main() -> None:
     comments_csv_path = output_dir / "comments.csv"
     _write_comments_csv(comments_csv_path, flat_comments)
 
+    # The summary is the quick "what happened?" file for humans and automation.
     summary = {
         "profile": target_username,
         "posts_extracted": len(all_posts),
@@ -232,6 +246,7 @@ def main() -> None:
         json.dumps(summary, indent=2),
         encoding="utf-8",
     )
+    # CLI tools usually print one compact result line so shell scripts can read it.
     sys.stdout.write(
         json.dumps(
             {

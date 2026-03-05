@@ -4,42 +4,38 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 import re
 import sys
-import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from random import SystemRandom
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-import requests
+    import requests
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
+from ._instagram_http import (
+    RetryConfig,
+    build_instagram_session,
+    json_error,
+    json_payload,
+    randomized_delay,
+    request_with_retry,
+)
+from ._shared_io import (
+    append_csv_row,
+    atomic_write_text,
+    ensure_csv_with_header,
+    load_json_dict,
+    write_json_line,
+)
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
-DEFAULT_USER_AGENT = os.getenv(
-    "INSTAGRAM_USER_AGENT",
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    ),
-)
-SUCCESS_STATUS = 200
-RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-RANDOM = SystemRandom()
 
 
 class _CheckpointState(TypedDict):
@@ -192,6 +188,7 @@ def fetch_media_id(
     shortcode_info_url = (
         f"https://www.instagram.com/api/v1/media/shortcode/{shortcode}/info/"
     )
+    # Try the clean API route first because it gives us structured JSON.
     response, error = _request_with_retry(session, shortcode_info_url, cfg)
     if response is not None:
         payload = _json_payload(response)
@@ -204,6 +201,7 @@ def fetch_media_id(
                     if media_id is not None:
                         return str(media_id), None
 
+    # If the API route fails, fall back to scraping the public page HTML.
     response, error = _request_with_retry(session, post_url, cfg)
     if response is None:
         return None, error or "media_page_request_failed"
@@ -219,6 +217,8 @@ def run(cfg: Config) -> dict[str, object]:
         Summary metadata for the completed scrape.
 
     """
+    # Read every target URL up front so the rest of the run can work with a
+    # simple list and known total size.
     urls = _load_urls_from_tool_dump(cfg.tool_dump_path)
     output_paths = _prepare_output(cfg)
     post_header = [
@@ -259,6 +259,7 @@ def run(cfg: Config) -> dict[str, object]:
         reset=cfg.reset_output,
     )
 
+    # Resuming means "start from the saved checkpoint if there is one".
     checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
     metrics = _initial_metrics(cfg, urls, checkpoint)
     session = _build_session(cfg.cookie_header)
@@ -328,6 +329,8 @@ def _load_urls_from_tool_dump(path: Path) -> list[str]:
 
 
 def _tool_dump_payloads(text: str) -> Generator[dict[str, object]]:
+    # Browser-tool dumps are not always "just JSON". This helper tries the plain
+    # JSON shape first, then a fenced ```json block if the dump was pasted from chat.
     start = text.find('{"count"')
     end = text.rfind("}")
     if start != -1 and end > start:
@@ -344,37 +347,12 @@ def _tool_dump_payloads(text: str) -> Generator[dict[str, object]]:
             yield cast("dict[str, object]", raw_payload)
 
 
-def _cookie_value(cookie_header: str, key: str) -> str | None:
-    match = re.search(r"(?:^|; )" + re.escape(key) + r"=([^;]+)", cookie_header)
-    return None if match is None else match.group(1)
-
-
 def _build_session(cookie_header: str) -> requests.Session:
-    session = requests.Session()
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.instagram.com/",
-        "Cookie": cookie_header,
-    }
-    app_id = os.getenv("INSTAGRAM_APP_ID")
-    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
-    if app_id:
-        headers["X-IG-App-ID"] = app_id
-    if asbd_id:
-        headers["X-ASBD-ID"] = asbd_id
-    csrftoken = _cookie_value(cookie_header, "csrftoken")
-    session.headers.update(headers)
-    if csrftoken:
-        session.headers["X-CSRFToken"] = csrftoken
-    return session
+    return build_instagram_session(cookie_header)
 
 
 def _randomized_delay(cfg: Config, *, extra_scale: float = 1.0) -> None:
-    low = cfg.min_delay * extra_scale
-    high = cfg.max_delay * extra_scale
-    time.sleep(RANDOM.uniform(low, high))
+    randomized_delay(cfg.min_delay, cfg.max_delay, scale=extra_scale)
 
 
 def _request_with_retry(
@@ -384,31 +362,18 @@ def _request_with_retry(
     *,
     params: dict[str, str] | None = None,
 ) -> tuple[requests.Response | None, str | None]:
-    last_error: str | None = None
-    for attempt in range(1, cfg.max_retries + 1):
-        try:
-            response = session.get(url, params=params, timeout=cfg.request_timeout)
-        except requests.RequestException as exc:
-            last_error = f"request_exception:{exc.__class__.__name__}"
-            _randomized_delay(
-                cfg,
-                extra_scale=cfg.base_retry_seconds * (2 ** (attempt - 1)),
-            )
-            continue
-        if response.status_code == SUCCESS_STATUS:
-            return response, None
-        if response.status_code in RETRYABLE_STATUSES:
-            retry_after = response.headers.get("Retry-After")
-            wait_seconds = (
-                float(retry_after)
-                if retry_after and retry_after.isdigit()
-                else cfg.base_retry_seconds * (2 ** (attempt - 1))
-            )
-            last_error = f"http_{response.status_code}"
-            _randomized_delay(cfg, extra_scale=wait_seconds)
-            continue
-        return None, f"http_{response.status_code}"
-    return None, last_error or "request_failed"
+    return request_with_retry(
+        session,
+        url,
+        RetryConfig(
+            timeout=cfg.request_timeout,
+            max_retries=cfg.max_retries,
+            min_delay=cfg.min_delay,
+            max_delay=cfg.max_delay,
+            base_retry_seconds=cfg.base_retry_seconds,
+        ),
+        params=params,
+    )
 
 
 def _extract_shortcode(url: str) -> str | None:
@@ -463,6 +428,7 @@ def _fetch_comments(
     comments: list[_CommentRow] = []
     max_id: str | None = None
     for _ in range(cfg.max_comment_pages):
+        # Instagram returns comments in pages. `max_id` asks for the next page.
         params = {
             "can_support_threading": "true",
             "permalink_enabled": "false",
@@ -488,6 +454,7 @@ def _fetch_comments(
         if not has_more or not isinstance(next_cursor, str):
             return comments, None
         max_id = next_cursor
+        # Slow down slightly between pages to reduce the chance of rate limiting.
         _randomized_delay(cfg, extra_scale=1.5)
     return comments, "comments_page_guard_exhausted"
 
@@ -502,6 +469,7 @@ def _comment_rows(comments: list[object]) -> list[_CommentRow]:
         if not isinstance(user, dict):
             user = {}
         user_dict = cast("dict[str, object]", user)
+        # Normalize each API comment into the small shape the rest of this repo uses.
         rows.append(
             {
                 "id": str(comment_dict.get("pk") or ""),
@@ -517,65 +485,20 @@ def _comment_rows(comments: list[object]) -> list[_CommentRow]:
     return rows
 
 
-@contextmanager
-def _locked_path(path: Path) -> Generator[None]:
-    lock_path = path.with_suffix(f"{path.suffix}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_file:
-        if os.name == "nt":
-            lock_file.seek(0, os.SEEK_END)
-            if lock_file.tell() == 0:
-                lock_file.write("\0")
-                lock_file.flush()
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
 def _atomic_write_text(path: Path, content: str) -> None:
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with _locked_path(path):
-        try:
-            temp_path.write_text(content, encoding="utf-8")
-            temp_path.replace(path)
-        finally:
-            temp_path.unlink(missing_ok=True)
+    atomic_write_text(path, content)
 
 
 def _write_json_line(path: Path, payload: dict[str, object]) -> None:
-    with _locked_path(path), path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        file.flush()
-        os.fsync(file.fileno())
+    write_json_line(path, payload)
 
 
 def _ensure_csv_with_header(path: Path, header: list[str], *, reset: bool) -> None:
-    with _locked_path(path):
-        if reset and path.exists():
-            path.unlink()
-        if not path.exists():
-            with path.open("w", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(file, fieldnames=header)
-                writer.writeheader()
-                file.flush()
-                os.fsync(file.fileno())
+    ensure_csv_with_header(path, header, reset=reset)
 
 
 def _append_csv_row(path: Path, header: list[str], row: dict[str, object]) -> None:
-    with _locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=header)
-        writer.writerow(row)
-        file.flush()
-        os.fsync(file.fileno())
+    append_csv_row(path, header, row)
 
 
 def _checkpoint_path(output_dir: Path) -> Path:
@@ -584,12 +507,8 @@ def _checkpoint_path(output_dir: Path) -> Path:
 
 def _load_checkpoint(output_dir: Path) -> _CheckpointState | None:
     path = _checkpoint_path(output_dir)
-    if not path.exists():
-        return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        return None
-    return cast("_CheckpointState", payload)
+    payload = load_json_dict(path)
+    return cast("_CheckpointState", payload) if payload is not None else None
 
 
 def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
@@ -599,6 +518,7 @@ def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
 def _prepare_output(cfg: Config) -> _OutputPaths:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     if cfg.reset_output:
+        # Reset mode throws away old artifacts so the next run starts cleanly.
         for name in (
             "posts.ndjson",
             "comments.ndjson",
@@ -629,6 +549,7 @@ def _initial_metrics(
 ) -> _RunMetrics:
     start_index = cfg.start_index
     if checkpoint is not None:
+        # On resume, never go backwards earlier than the saved next index.
         start_index = max(start_index, checkpoint["next_index"])
     end_index = (
         len(urls)
@@ -650,6 +571,8 @@ def _initial_metrics(
 def _process_url(context: _RunContext, index: int, post_url: str) -> None:
     shortcode = _extract_shortcode(post_url)
     if shortcode is None:
+        # Save progress even for bad input so a rerun does not get stuck on the
+        # same broken row forever.
         error_row: _ErrorRow = {
             "index": index,
             "post_url": post_url,
@@ -701,6 +624,7 @@ def _process_url(context: _RunContext, index: int, post_url: str) -> None:
     _process_media(context, index, post_url, shortcode, media_id)
     _increment_metric(context.metrics, "processed")
     if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
+        # Periodic checkpoints make long runs resumable after crashes or rate limits.
         _save_checkpoint(
             context.cfg.output_dir,
             _checkpoint_state(
@@ -747,6 +671,7 @@ def _process_media(
         return
     post_row = _post_row(media_id, shortcode, post_url, media_info)
     post_payload = _post_payload(post_row)
+    # Write each record immediately so progress is durable even in long scrapes.
     _write_json_line(context.output_paths["posts_ndjson"], post_payload)
     _append_csv_row(
         context.output_paths["posts_csv"],
@@ -777,6 +702,7 @@ def _write_comments(
 ) -> str | None:
     declared_comment_count = post_row["comment_count"]
     if declared_comment_count is None or declared_comment_count <= 0:
+        # Skip the network call when Instagram already says there are no comments.
         return None
     post_comments, comments_error = _fetch_comments(
         context.session,
@@ -839,6 +765,7 @@ def _checkpoint_state(
     next_index: int | None = None,
     completed: bool | None = None,
 ) -> _CheckpointState:
+    # The checkpoint is the minimal state needed to resume later.
     state: _CheckpointState = {
         "started_at_utc": metrics["started_at_utc"],
         "updated_at_utc": _iso_utc_now(),
@@ -860,6 +787,8 @@ def _build_summary(
     metrics: _RunMetrics,
 ) -> dict[str, object]:
     username = output_dir.name or "unknown"
+    # The summary points at every artifact so humans and automation can discover
+    # the outputs without scanning the whole folder.
     return {
         "target_profile": username,
         "source_url": (
@@ -903,19 +832,11 @@ def _post_payload(post_row: _PostRow) -> dict[str, object]:
 
 
 def _json_payload(response: requests.Response) -> dict[str, object] | None:
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    return cast("dict[str, object]", payload) if isinstance(payload, dict) else None
+    return json_payload(response)
 
 
 def _json_error(response: requests.Response, prefix: str) -> str:
-    content_type = (response.headers.get("content-type") or "").lower()
-    preview = (response.text or "")[:120].replace("\n", " ")
-    if "json" not in content_type:
-        return f"{prefix}_non_json:{content_type}:{preview}"
-    return f"{prefix}_json_decode_failed"
+    return json_error(response, prefix)
 
 
 def _optional_int(value: object) -> int | None:

@@ -7,41 +7,34 @@ import argparse
 import csv
 import json
 import os
-import re
 import sys
 import time
 from collections import defaultdict
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from random import SystemRandom
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
+from typing import Literal, NotRequired, TypedDict, cast
 
 import requests
 
-if os.name == "nt":
-    import msvcrt
-else:
-    import fcntl
+from ._instagram_http import (
+    RetryConfig,
+    build_instagram_session,
+    json_error,
+    json_payload,
+    randomized_delay,
+    request_with_retry,
+)
+from ._shared_io import (
+    append_csv_row,
+    atomic_write_text,
+    ensure_csv_with_header,
+    load_json_dict,
+)
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
-DEFAULT_USER_AGENT = os.getenv(
-    "INSTAGRAM_USER_AGENT",
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    ),
-)
-SUCCESS_STATUS = 200
 MEDIA_TYPE_VIDEO = 2
 MEDIA_TYPE_CAROUSEL = 8
-RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-RANDOM = SystemRandom()
 
 
 class _CheckpointState(TypedDict):
@@ -161,6 +154,7 @@ def download_video_file(
         Whether the download succeeded and any resulting error code.
 
     """
+    # Reuse an existing finished file instead of downloading the same bytes again.
     if destination.exists() and destination.stat().st_size > 0:
         return True, None
     if destination.exists():
@@ -168,6 +162,8 @@ def download_video_file(
     response, error = _request_with_retry(session, video_url, cfg, stream=True)
     if response is None:
         return False, error or "video_download_request_failed"
+    # Download into a temporary ".part" file first so interrupted runs never
+    # leave behind a file that looks complete but is actually truncated.
     temp_path = destination.with_name(
         f"{destination.name}.{os.getpid()}.{time.time_ns()}.part",
     )
@@ -214,6 +210,7 @@ def run(cfg: Config) -> dict[str, object]:
         message = f"posts CSV not found: {cfg.posts_csv}"
         raise FileNotFoundError(message)
     paths = _prepare_output(cfg)
+    # Group comments by shortcode once so each post can grab its own comments quickly.
     comments_by_shortcode = _load_comments_by_shortcode(cfg.comments_csv)
     rows = _target_rows(cfg.posts_csv, cfg.limit)
     checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
@@ -260,35 +257,12 @@ def _default_output_dir() -> Path:
     return _default_data_dir() / _default_username()
 
 
-def _cookie_value(cookie_header: str, key: str) -> str | None:
-    match = re.search(r"(?:^|; )" + re.escape(key) + r"=([^;]+)", cookie_header)
-    return None if match is None else match.group(1)
-
-
 def _build_session(cookie_header: str) -> requests.Session:
-    session = requests.Session()
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.instagram.com/",
-        "Cookie": cookie_header,
-    }
-    app_id = os.getenv("INSTAGRAM_APP_ID")
-    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
-    if app_id:
-        headers["X-IG-App-ID"] = app_id
-    if asbd_id:
-        headers["X-ASBD-ID"] = asbd_id
-    csrftoken = _cookie_value(cookie_header, "csrftoken")
-    session.headers.update(headers)
-    if csrftoken:
-        session.headers["X-CSRFToken"] = csrftoken
-    return session
+    return build_instagram_session(cookie_header)
 
 
 def _randomized_delay(cfg: Config, *, scale: float = 1.0) -> None:
-    time.sleep(RANDOM.uniform(cfg.min_delay * scale, cfg.max_delay * scale))
+    randomized_delay(cfg.min_delay, cfg.max_delay, scale=scale)
 
 
 def _request_with_retry(
@@ -298,28 +272,18 @@ def _request_with_retry(
     *,
     stream: bool,
 ) -> tuple[requests.Response | None, str | None]:
-    last_error: str | None = None
-    for attempt in range(1, cfg.max_retries + 1):
-        try:
-            response = session.get(url, timeout=cfg.timeout, stream=stream)
-        except requests.RequestException as exc:
-            last_error = f"request_exception:{exc.__class__.__name__}"
-            _randomized_delay(cfg, scale=2 ** (attempt - 1))
-            continue
-        if response.status_code == SUCCESS_STATUS:
-            return response, None
-        if response.status_code in RETRYABLE_STATUSES:
-            retry_after = response.headers.get("Retry-After")
-            wait_seconds = (
-                float(retry_after)
-                if retry_after and retry_after.isdigit()
-                else float(2 ** (attempt - 1))
-            )
-            last_error = f"http_{response.status_code}"
-            _randomized_delay(cfg, scale=max(1.0, wait_seconds))
-            continue
-        return None, f"http_{response.status_code}"
-    return None, last_error or "request_failed"
+    return request_with_retry(
+        session,
+        url,
+        RetryConfig(
+            timeout=cfg.timeout,
+            max_retries=cfg.max_retries,
+            min_delay=cfg.min_delay,
+            max_delay=cfg.max_delay,
+            base_retry_seconds=1.0,
+        ),
+        stream=stream,
+    )
 
 
 def _fetch_media_info(
@@ -365,6 +329,7 @@ def _pick_best_video_url(video_versions: object) -> str | None:
             or not isinstance(url, str)
         ):
             continue
+        # Use the largest resolution available so saved files are the highest quality.
         area = width * height
         if area > best_area:
             best_area = area
@@ -375,6 +340,7 @@ def _pick_best_video_url(video_versions: object) -> str | None:
 def _extract_video_entries(media_info: dict[str, object]) -> list[dict[str, object]]:
     media_type = media_info.get("media_type")
     if media_type == MEDIA_TYPE_VIDEO:
+        # A normal video post has one downloadable video file.
         video_url = _pick_best_video_url(media_info.get("video_versions"))
         return [] if video_url is None else [_video_entry(1, video_url)]
     if media_type != MEDIA_TYPE_CAROUSEL:
@@ -383,6 +349,7 @@ def _extract_video_entries(media_info: dict[str, object]) -> list[dict[str, obje
     carousel_media = media_info.get("carousel_media")
     if not isinstance(carousel_media, list):
         return entries
+    # Carousel posts can mix images and videos, so inspect each child separately.
     for index, child in enumerate(carousel_media, start=1):
         if not isinstance(child, dict):
             continue
@@ -403,58 +370,16 @@ def _video_entry(position: int, video_url: str) -> dict[str, object]:
     }
 
 
-@contextmanager
-def _locked_path(path: Path) -> Generator[None]:
-    lock_path = path.with_suffix(f"{path.suffix}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_file:
-        if os.name == "nt":
-            lock_file.seek(0, os.SEEK_END)
-            if lock_file.tell() == 0:
-                lock_file.write("\0")
-                lock_file.flush()
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
 def _atomic_write_text(path: Path, content: str) -> None:
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with _locked_path(path):
-        try:
-            temp_path.write_text(content, encoding="utf-8")
-            temp_path.replace(path)
-        finally:
-            temp_path.unlink(missing_ok=True)
+    atomic_write_text(path, content)
 
 
 def _ensure_csv(path: Path, header: list[str], *, reset_output: bool) -> None:
-    with _locked_path(path):
-        if reset_output and path.exists():
-            path.unlink()
-        if not path.exists():
-            with path.open("w", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(file, fieldnames=header)
-                writer.writeheader()
-                file.flush()
-                os.fsync(file.fileno())
+    ensure_csv_with_header(path, header, reset=reset_output)
 
 
 def _append_csv(path: Path, header: list[str], row: dict[str, object]) -> None:
-    with _locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=header)
-        writer.writerow(row)
-        file.flush()
-        os.fsync(file.fileno())
+    append_csv_row(path, header, row)
 
 
 def _load_comments_by_shortcode(
@@ -468,6 +393,7 @@ def _load_comments_by_shortcode(
         for row in reader:
             shortcode = row.get("shortcode")
             if shortcode:
+                # This turns one big CSV into a lookup table: shortcode -> comments.
                 by_shortcode[shortcode].append(dict(row))
     return by_shortcode
 
@@ -478,12 +404,8 @@ def _checkpoint_file(output_dir: Path) -> Path:
 
 def _load_checkpoint(output_dir: Path) -> _CheckpointState | None:
     path = _checkpoint_file(output_dir)
-    if not path.exists():
-        return None
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        return None
-    return cast("_CheckpointState", payload)
+    payload = load_json_dict(path)
+    return cast("_CheckpointState", payload) if payload is not None else None
 
 
 def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
@@ -496,6 +418,8 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
     index_csv = cfg.output_dir / "videos_index.csv"
     errors_csv = cfg.output_dir / "videos_errors.csv"
     if cfg.reset_output:
+        # Reset mode removes old bookkeeping files and keeps the directory layout
+        # simple for the next run.
         for path in (
             index_csv,
             errors_csv,
@@ -528,6 +452,7 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
 def _target_rows(posts_csv: Path, limit: int | None) -> list[dict[str, str]]:
     with posts_csv.open("r", encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
+    # Only video and carousel posts can produce downloadable `.mp4` files.
     filtered = [
         dict(row)
         for row in rows
@@ -535,6 +460,7 @@ def _target_rows(posts_csv: Path, limit: int | None) -> list[dict[str, str]]:
     ]
     filtered.sort(
         key=lambda row: (
+            # Download plain video posts before carousels so simpler cases finish first.
             0 if row.get("type") == str(MEDIA_TYPE_VIDEO) else 1,
             row.get("shortcode") or "",
         ),
@@ -566,6 +492,7 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
     post_url = row.get("post_url", "")
     post = _PostTarget(shortcode=shortcode, media_id=media_id, post_url=post_url)
     if context.cfg.resume and shortcode in context.completed:
+        # Resume mode skips posts that were already marked complete in the checkpoint.
         return
     if not shortcode or not media_id:
         _record_download_error(
@@ -600,6 +527,8 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
     post_dir = context.paths["videos_root"] / shortcode
     post_dir.mkdir(parents=True, exist_ok=True)
     caption_text = row.get("caption", "")
+    # Save the caption and comments next to the videos so each post directory is a
+    # self-contained bundle of everything we know about that post.
     (post_dir / "caption.txt").write_text(caption_text, encoding="utf-8")
     _write_comments_snapshot(
         post_dir,
@@ -626,6 +555,7 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
     )
     _mark_completed(context.metrics, context.completed, shortcode)
     if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
+        # Save progress regularly so long download runs can resume after interruption.
         _save_checkpoint(
             context.cfg.output_dir,
             _checkpoint_state(context.metrics, context.completed),
@@ -685,6 +615,7 @@ def _download_entries(
             )
             _increment_metric(context.metrics, "errors")
             continue
+        # The index CSV is the master list of every saved file and where it lives.
         row = {
             "shortcode": post.shortcode,
             "media_id": post.media_id,
@@ -728,6 +659,8 @@ def _mark_completed(
     completed: set[str],
     shortcode: str,
 ) -> None:
+    # Keep the set for fast membership checks, then save a sorted list so output
+    # files stay stable between runs.
     completed.add(shortcode)
     metrics["completed_shortcodes"] = sorted(completed)
     _increment_metric(metrics, "processed")
@@ -766,19 +699,11 @@ def _build_summary(
 
 
 def _json_payload(response: requests.Response) -> dict[str, object] | None:
-    try:
-        payload = response.json()
-    except ValueError:
-        return None
-    return cast("dict[str, object]", payload) if isinstance(payload, dict) else None
+    return json_payload(response)
 
 
 def _json_error(response: requests.Response, prefix: str) -> str:
-    content_type = (response.headers.get("content-type") or "").lower()
-    preview = (response.text or "")[:120].replace("\n", " ")
-    if "json" not in content_type:
-        return f"{prefix}_non_json:{content_type}:{preview}"
-    return f"{prefix}_json_decode_failed"
+    return json_error(response, prefix)
 
 
 def _increment_metric(

@@ -11,6 +11,7 @@ from instagram_scraper import scrape_instagram_profile as profile
 
 
 def test_no_hardcoded_specific_username_literals() -> None:
+    # Guard against reintroducing a personal username that would break reuse.
     files = [
         Path("src/instagram_scraper/scrape_instagram_from_browser_dump.py"),
         Path("src/instagram_scraper/download_instagram_videos.py"),
@@ -22,6 +23,8 @@ def test_no_hardcoded_specific_username_literals() -> None:
 def test_browser_dump_defaults_respect_data_dir_env(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
+    # Reload the module after changing environment variables so default paths are
+    # recomputed from the test values instead of the real machine values.
     monkeypatch.setenv("INSTAGRAM_DATA_DIR", str(tmp_path / "ig-data"))
     monkeypatch.delenv("INSTAGRAM_USERNAME", raising=False)
     monkeypatch.setattr(sys, "argv", ["prog"])
@@ -53,6 +56,7 @@ def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> N
     calls: list[str] = []
 
     def fake_request_with_retry(session, url, cfg, params=None):
+        # Return a successful fake response only for the shortcode endpoint.
         calls.append(url)
         if "/api/v1/media/shortcode/" in url:
             return FakeJsonResponse({"items": [{"id": "123456789"}]}), None
@@ -143,6 +147,8 @@ def test_checkpoint_saved_after_error_before_crash(
     with pytest.raises(RuntimeError, match="boom during media id"):
         module.run(cfg)
 
+    # The first URL is bad on purpose. The checkpoint proves the scraper recorded
+    # that progress before the second URL crashed.
     checkpoint = json.loads(
         (output_dir / "checkpoint.json").read_text(encoding="utf-8"),
     )
@@ -155,6 +161,7 @@ def test_download_video_file_cleans_partial_file_on_write_error(
 ) -> None:
     class FakeResponse:
         def iter_content(self, chunk_size: int):  # noqa: ARG002
+            # Simulate "download started, disk failed halfway through".
             yield b"partial-data"
             raise OSError("disk write interrupted")
 
@@ -184,6 +191,7 @@ def test_download_video_file_cleans_partial_file_on_write_error(
         destination,
         cfg,
     )
+    # A failed download should not leave behind either a final file or a temp file.
     assert ok is False
     assert error is not None and error.startswith("file_write_error:")
     assert not destination.exists()
@@ -191,6 +199,7 @@ def test_download_video_file_cleans_partial_file_on_write_error(
 
 
 def test_comment_to_dict_uses_comment_like_count_key() -> None:
+    # Build a tiny fake comment object that looks enough like Instaloader's real one.
     owner = SimpleNamespace(username="alice", userid=42)
     comment = SimpleNamespace(
         id=7,
