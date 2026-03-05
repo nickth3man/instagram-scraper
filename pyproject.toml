@@ -57,7 +57,7 @@ select = ["ALL"]
 [tool.ty.rules]
 all = "error"
 
-[tool.ty]
+[tool.ty.src]
 exclude = ["tests/"]
 
 [tool.ty.terminal]

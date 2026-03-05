@@ -8,11 +8,12 @@ import csv
 import json
 import os
 import sys
-from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 import instaloader
 from instaloader import Profile
@@ -21,14 +22,18 @@ from instaloader.exceptions import InstaloaderException
 DEFAULT_DATA_DIR_FALLBACK = "data"
 
 
-@dataclass(frozen=True)
-class _CommentRecord:
-    row: dict[str, str | None]
-    post_shortcode: str
+def comment_to_dict(
+    comment: object,
+    parent_id: int | None = None,
+) -> dict[str, int | str | None]:
+    """Convert an Instaloader comment object into a serializable row.
 
+    Returns
+    -------
+    dict[str, int | str | None]
+        A JSON-serializable representation of the comment.
 
-def comment_to_dict(comment: Any, parent_id: int | None = None) -> dict[str, str | None]:
-    """Convert an Instaloader comment object into a serializable row."""
+    """
     owner = getattr(comment, "owner", None)
     owner_username = getattr(owner, "username", None)
     owner_id = getattr(owner, "userid", None)
@@ -39,21 +44,19 @@ def comment_to_dict(comment: Any, parent_id: int | None = None) -> dict[str, str
         "parent_id": str(parent_id) if parent_id is not None else None,
         "created_at_utc": created_at_iso,
         "text": getattr(comment, "text", None),
-        "comment_like_count": _optional_int_text(getattr(comment, "likes_count", None)),
+        "comment_like_count": getattr(comment, "likes_count", None),
         "owner_username": owner_username,
         "owner_id": str(owner_id) if owner_id is not None else None,
     }
 
 
-def _optional_int_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(value)
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--username", required=True, help="Instagram username to scrape")
+    parser.add_argument(
+        "--username",
+        required=True,
+        help="Instagram username to scrape",
+    )
     return parser.parse_args()
 
 
@@ -62,31 +65,42 @@ def _output_dir(username: str) -> Path:
     return data_dir / username
 
 
-def _collect_comments(post: Any) -> tuple[list[dict[str, str | None]], str | None]:
-    comments: list[dict[str, str | None]] = []
+def _collect_comments(
+    post: instaloader.Post,
+) -> tuple[list[dict[str, int | str | None]], str | None]:
+    comments: list[dict[str, int | str | None]] = []
     try:
         for comment in post.get_comments():
             comments.append(_comment_row(comment, post.shortcode))
-            for answer in list(getattr(comment, "answers", [])):
-                comments.append(_comment_row(answer, post.shortcode, parent_id=comment.id))
+            comments.extend(
+                _comment_row(answer, post.shortcode, parent_id=comment.id)
+                for answer in list(getattr(comment, "answers", []))
+            )
     except InstaloaderException as exc:
         return comments, str(exc)
     return comments, None
 
 
 def _comment_row(
-    comment: Any,
+    comment: object,
     post_shortcode: str,
     parent_id: int | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, int | str | None]:
     row = comment_to_dict(comment, parent_id=parent_id)
     row["post_shortcode"] = post_shortcode
     return row
 
 
-def _iter_post_rows(profile: Profile, username: str) -> tuple[list[dict[str, Any]], list[dict[str, str | None]], list[dict[str, str]]]:
-    posts: list[dict[str, Any]] = []
-    flat_comments: list[dict[str, str | None]] = []
+def _iter_post_rows(
+    profile: Profile,
+    username: str,
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, int | str | None]],
+    list[dict[str, str]],
+]:
+    posts: list[dict[str, object]] = []
+    flat_comments: list[dict[str, int | str | None]] = []
     extraction_errors: list[dict[str, str]] = []
     for post in profile.get_posts():
         post_comments, extraction_error = _collect_comments(post)
@@ -115,7 +129,7 @@ def _iter_post_rows(profile: Profile, username: str) -> tuple[list[dict[str, Any
     return posts, flat_comments, extraction_errors
 
 
-def _write_posts_csv(posts_csv_path: Path, posts: Iterable[dict[str, Any]]) -> None:
+def _write_posts_csv(posts_csv_path: Path, posts: Iterable[dict[str, object]]) -> None:
     fieldnames = [
         "shortcode",
         "post_url",
@@ -136,7 +150,7 @@ def _write_posts_csv(posts_csv_path: Path, posts: Iterable[dict[str, Any]]) -> N
 
 def _write_comments_csv(
     comments_csv_path: Path,
-    comments: Iterable[dict[str, str | None]],
+    comments: Iterable[dict[str, int | str | None]],
 ) -> None:
     fieldnames = [
         "post_shortcode",
@@ -176,7 +190,10 @@ def main() -> None:
         quiet=True,
     )
     profile = Profile.from_username(loader.context, target_username)
-    all_posts, flat_comments, extraction_errors = _iter_post_rows(profile, target_username)
+    all_posts, flat_comments, extraction_errors = _iter_post_rows(
+        profile,
+        target_username,
+    )
     finished_at = datetime.now(UTC)
 
     dataset = {

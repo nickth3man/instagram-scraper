@@ -1,16 +1,31 @@
+# Copyright (c) 2026 Nicolas Alexander
+"""Scrape Instagram post metadata and comments from a browser-tool URL dump."""
+
+from __future__ import annotations
+
 import argparse
 import csv
 import json
 import os
-import random
 import re
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from random import SystemRandom
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 import requests
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
@@ -22,29 +37,85 @@ DEFAULT_USER_AGENT = os.getenv(
         "Chrome/133.0.0.0 Safari/537.36"
     ),
 )
+SUCCESS_STATUS = 200
+RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+RANDOM = SystemRandom()
 
 
-def default_data_dir() -> Path:
-    return Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
+class _CheckpointState(TypedDict):
+    started_at_utc: str
+    updated_at_utc: str
+    next_index: int
+    processed: int
+    posts: int
+    comments: int
+    errors: int
+    total_urls: int
+    completed: NotRequired[bool]
 
 
-def default_username() -> str:
-    return os.getenv("INSTAGRAM_USERNAME", DEFAULT_USERNAME_FALLBACK)
+class _PostRow(TypedDict):
+    media_id: str
+    shortcode: str
+    post_url: str
+    type: int | None
+    taken_at_utc: int | None
+    caption: str | None
+    like_count: int | None
+    comment_count: int | None
 
 
-def default_tool_dump_path() -> Path:
-    return default_data_dir() / "tool_dump.json"
+class _CommentRow(TypedDict):
+    id: str
+    created_at_utc: int | None
+    text: str | None
+    comment_like_count: int | None
+    owner_username: str | None
+    owner_id: str
 
 
-def default_output_dir() -> Path:
-    return default_data_dir() / default_username()
+class _ErrorRow(TypedDict):
+    index: int
+    post_url: str
+    shortcode: str | None
+    media_id: str | None
+    stage: str
+    error: str
 
 
-COOKIE_HEADER = os.getenv("IG_COOKIE_HEADER", "")
+class _OutputPaths(TypedDict):
+    posts_ndjson: Path
+    comments_ndjson: Path
+    errors_ndjson: Path
+    posts_csv: Path
+    comments_csv: Path
+    errors_csv: Path
+
+
+class _RunMetrics(TypedDict):
+    start_index: int
+    end_index: int
+    started_at_utc: str
+    processed: int
+    posts: int
+    comments: int
+    errors: int
 
 
 @dataclass
+class _RunContext:
+    cfg: Config
+    session: requests.Session
+    output_paths: _OutputPaths
+    headers: dict[str, list[str]]
+    total_urls: int
+    metrics: _RunMetrics
+
+
+@dataclass(frozen=True)
 class Config:
+    """Runtime configuration for scraping browser-dump URLs."""
+
     tool_dump_path: Path
     output_dir: Path
     resume: bool
@@ -62,9 +133,17 @@ class Config:
 
 
 def parse_args() -> Config:
+    """Parse CLI arguments into a validated configuration object.
+
+    Returns
+    -------
+    Config
+        The normalized runtime configuration for the scraper.
+
+    """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tool-dump-path", default=str(default_tool_dump_path()))
-    parser.add_argument("--output-dir", default=str(default_output_dir()))
+    parser.add_argument("--tool-dump-path", default=str(_default_tool_dump_path()))
+    parser.add_argument("--output-dir", default=str(_default_output_dir()))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--reset-output", action="store_true")
     parser.add_argument("--start-index", type=int, default=0)
@@ -76,8 +155,7 @@ def parse_args() -> Config:
     parser.add_argument("--request-timeout", type=int, default=30)
     parser.add_argument("--max-retries", type=int, default=5)
     parser.add_argument("--base-retry-seconds", type=float, default=2.0)
-    parser.add_argument("--cookie-header", default=COOKIE_HEADER)
-
+    parser.add_argument("--cookie-header", default=os.getenv("IG_COOKIE_HEADER", ""))
     args = parser.parse_args()
     return Config(
         tool_dump_path=Path(args.tool_dump_path),
@@ -97,343 +175,52 @@ def parse_args() -> Config:
     )
 
 
-def iso_utc_now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def load_urls_from_tool_dump(path: Path) -> list[str]:
-    text = path.read_text(encoding="utf-8")
-
-    start = text.find('{"count"')
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        payload = json.loads(text[start : end + 1])
-        urls = payload.get("urls")
-        if isinstance(urls, list):
-            return urls
-
-    start = text.find("```json")
-    end = text.rfind("```")
-    if start != -1 and end != -1 and end > start:
-        payload = json.loads(text[start + len("```json") : end].strip())
-        urls = payload.get("urls")
-        if isinstance(urls, list):
-            return urls
-
-    raise ValueError("Could not parse URL payload from tool dump")
-
-
-def cookie_value(cookie_header: str, key: str) -> str | None:
-    match = re.search(r"(?:^|; )" + re.escape(key) + r"=([^;]+)", cookie_header)
-    if not match:
-        return None
-    return match.group(1)
-
-
-def build_session(cookie_header: str) -> requests.Session:
-    session = requests.Session()
-    csrftoken = cookie_value(cookie_header, "csrftoken")
-    app_id = os.getenv("INSTAGRAM_APP_ID")
-    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
-
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.instagram.com/",
-        "Cookie": cookie_header,
-    }
-
-    if app_id:
-        headers["X-IG-App-ID"] = app_id
-    if asbd_id:
-        headers["X-ASBD-ID"] = asbd_id
-
-    session.headers.update(headers)
-    if csrftoken:
-        session.headers["X-CSRFToken"] = csrftoken
-    return session
-
-
-def randomized_delay(cfg: Config, extra_scale: float = 1.0) -> None:
-    low = cfg.min_delay * extra_scale
-    high = cfg.max_delay * extra_scale
-    time.sleep(random.uniform(low, high))
-
-
-def request_with_retry(
-    session: requests.Session,
-    url: str,
-    cfg: Config,
-    params: dict | None = None,
-) -> tuple[requests.Response | None, str | None]:
-    last_error = None
-    for attempt in range(1, cfg.max_retries + 1):
-        try:
-            response = session.get(url, params=params, timeout=cfg.request_timeout)
-        except requests.RequestException as exc:
-            last_error = f"request_exception:{exc.__class__.__name__}"
-            wait_seconds = cfg.base_retry_seconds * (2 ** (attempt - 1))
-            randomized_delay(cfg, extra_scale=wait_seconds)
-            continue
-
-        if response.status_code == 200:
-            return response, None
-
-        if response.status_code in {429, 500, 502, 503, 504}:
-            retry_after = response.headers.get("Retry-After")
-            if retry_after and retry_after.isdigit():
-                wait_seconds = float(retry_after)
-            else:
-                wait_seconds = cfg.base_retry_seconds * (2 ** (attempt - 1))
-            last_error = f"http_{response.status_code}"
-            randomized_delay(cfg, extra_scale=wait_seconds)
-            continue
-
-        return None, f"http_{response.status_code}"
-
-    return None, last_error or "request_failed"
-
-
-def extract_shortcode(url: str) -> str | None:
-    match = re.search(r"/(?:p|reel)/([^/]+)/", url)
-    if not match:
-        return None
-    return match.group(1)
-
-
 def fetch_media_id(
-    session: requests.Session, post_url: str, shortcode: str, cfg: Config,
+    session: requests.Session,
+    post_url: str,
+    shortcode: str,
+    cfg: Config,
 ) -> tuple[str | None, str | None]:
+    """Resolve an Instagram media id from a shortcode or fallback page HTML.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        The resolved media id and any resulting error code.
+
+    """
     shortcode_info_url = (
         f"https://www.instagram.com/api/v1/media/shortcode/{shortcode}/info/"
     )
-    response, error = request_with_retry(session, shortcode_info_url, cfg)
+    response, error = _request_with_retry(session, shortcode_info_url, cfg)
     if response is not None:
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-        items = payload.get("items") or []
-        if items:
-            media_id = items[0].get("id")
-            if media_id:
-                return str(media_id), None
+        payload = _json_payload(response)
+        if payload is not None:
+            items = payload.get("items")
+            if isinstance(items, list) and items:
+                first = items[0]
+                if isinstance(first, dict):
+                    media_id = cast("dict[str, object]", first).get("id")
+                    if media_id is not None:
+                        return str(media_id), None
 
-    response, error = request_with_retry(session, post_url, cfg)
+    response, error = _request_with_retry(session, post_url, cfg)
     if response is None:
         return None, error or "media_page_request_failed"
-
-    text = response.text
-    primary = re.search(r'"media_id":"(\d+)"', text)
-    if primary:
-        return primary.group(1), None
-
-    escaped_shortcode = re.escape(shortcode)
-    secondary = re.search(
-        rf'"shortcode":"{escaped_shortcode}".*?"id":"(\d+)"',
-        text,
-        re.DOTALL,
-    )
-    if secondary:
-        return secondary.group(1), None
-
-    return None, "media_id_not_found"
+    return _extract_media_id_from_html(response.text, shortcode)
 
 
-def fetch_media_info(
-    session: requests.Session, media_id: str, cfg: Config,
-) -> tuple[dict | None, str | None]:
-    url = f"https://www.instagram.com/api/v1/media/{media_id}/info/"
-    response, error = request_with_retry(session, url, cfg)
-    if response is None:
-        return None, error or "media_info_request_failed"
+def run(cfg: Config) -> dict[str, object]:
+    """Scrape all URLs from the tool dump and persist the generated artifacts.
 
-    try:
-        payload = response.json()
-    except ValueError:
-        content_type = (response.headers.get("content-type") or "").lower()
-        preview = (response.text or "")[:120].replace("\n", " ")
-        if "json" not in content_type:
-            return None, f"media_info_non_json:{content_type}:{preview}"
-        return None, "media_info_json_decode_failed"
+    Returns
+    -------
+    dict[str, object]
+        Summary metadata for the completed scrape.
 
-    items = payload.get("items") or []
-    if not items:
-        return None, "media_info_empty"
-    return items[0], None
-
-
-def fetch_comments(
-    session: requests.Session, media_id: str, cfg: Config,
-) -> tuple[list[dict], str | None]:
-    comments = []
-    max_id = None
-    pages = 0
-
-    while pages < cfg.max_comment_pages:
-        pages += 1
-        url = f"https://www.instagram.com/api/v1/media/{media_id}/comments/"
-        params = {
-            "can_support_threading": "true",
-            "permalink_enabled": "false",
-        }
-        if max_id:
-            params["max_id"] = max_id
-
-        response, error = request_with_retry(session, url, cfg, params=params)
-        if response is None:
-            return comments, error or "comments_request_failed"
-
-        try:
-            payload = response.json()
-        except ValueError:
-            content_type = (response.headers.get("content-type") or "").lower()
-            preview = (response.text or "")[:120].replace("\n", " ")
-            if "json" not in content_type:
-                return comments, f"comments_non_json:{content_type}:{preview}"
-            return comments, "comments_json_decode_failed"
-
-        page_comments = payload.get("comments") or []
-        for comment in page_comments:
-            user = comment.get("user") or {}
-            comments.append(
-                {
-                    "id": str(comment.get("pk") or ""),
-                    "created_at_utc": comment.get("created_at_utc"),
-                    "text": comment.get("text"),
-                    "comment_like_count": comment.get("comment_like_count"),
-                    "owner_username": user.get("username"),
-                    "owner_id": str(user.get("pk") or ""),
-                },
-            )
-
-        has_more = bool(payload.get("has_more_comments"))
-        max_id = payload.get("next_max_id") or payload.get("next_min_id")
-        if not has_more or not max_id:
-            return comments, None
-
-        randomized_delay(cfg, extra_scale=1.5)
-
-    return comments, "comments_page_guard_exhausted"
-
-
-@contextmanager
-def locked_path(path: Path):
-    lock_path = path.with_suffix(f"{path.suffix}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_file:
-        if os.name == "nt":
-            import msvcrt
-
-            lock_file.seek(0, os.SEEK_END)
-            if lock_file.tell() == 0:
-                lock_file.write("\0")
-                lock_file.flush()
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if os.name == "nt":
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-
-def atomic_write_text(path: Path, content: str) -> None:
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
-    with locked_path(path):
-        try:
-            temp_path.write_text(content, encoding="utf-8")
-            temp_path.replace(path)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
-
-
-def write_json_line(path: Path, payload: dict) -> None:
-    with locked_path(path), path.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        file.flush()
-        os.fsync(file.fileno())
-
-
-def ensure_csv_with_header(path: Path, header: list[str], reset: bool) -> None:
-    with locked_path(path):
-        if reset and path.exists():
-            path.unlink()
-        if not path.exists():
-            with path.open("w", newline="", encoding="utf-8") as file:
-                writer = csv.DictWriter(file, fieldnames=header)
-                writer.writeheader()
-                file.flush()
-                os.fsync(file.fileno())
-
-
-def append_csv_row(path: Path, header: list[str], row: dict) -> None:
-    with locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=header)
-        writer.writerow(row)
-        file.flush()
-        os.fsync(file.fileno())
-
-
-def checkpoint_path(output_dir: Path) -> Path:
-    return output_dir / "checkpoint.json"
-
-
-def load_checkpoint(output_dir: Path) -> dict | None:
-    path = checkpoint_path(output_dir)
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_checkpoint(output_dir: Path, state: dict) -> None:
-    atomic_write_text(checkpoint_path(output_dir), json.dumps(state, indent=2))
-
-
-def reset_output(output_dir: Path) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    for name in [
-        "posts.ndjson",
-        "comments.ndjson",
-        "errors.ndjson",
-        "posts.csv",
-        "comments.csv",
-        "errors.csv",
-        "summary.json",
-        "checkpoint.json",
-    ]:
-        path = output_dir / name
-        if path.exists():
-            path.unlink()
-
-
-def run(cfg: Config) -> dict:
-    urls = load_urls_from_tool_dump(cfg.tool_dump_path)
-    output_dir = cfg.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    if cfg.reset_output:
-        reset_output(output_dir)
-
-    posts_ndjson = output_dir / "posts.ndjson"
-    comments_ndjson = output_dir / "comments.ndjson"
-    errors_ndjson = output_dir / "errors.ndjson"
-
-    posts_csv = output_dir / "posts.csv"
-    comments_csv = output_dir / "comments.csv"
-    errors_csv = output_dir / "errors.csv"
-
+    """
+    urls = _load_urls_from_tool_dump(cfg.tool_dump_path)
+    output_paths = _prepare_output(cfg)
     post_header = [
         "media_id",
         "shortcode",
@@ -456,199 +243,694 @@ def run(cfg: Config) -> dict:
         "owner_id",
     ]
     error_header = ["index", "post_url", "shortcode", "media_id", "stage", "error"]
+    _ensure_csv_with_header(
+        output_paths["posts_csv"],
+        post_header,
+        reset=cfg.reset_output,
+    )
+    _ensure_csv_with_header(
+        output_paths["comments_csv"],
+        comment_header,
+        reset=cfg.reset_output,
+    )
+    _ensure_csv_with_header(
+        output_paths["errors_csv"],
+        error_header,
+        reset=cfg.reset_output,
+    )
 
-    ensure_csv_with_header(posts_csv, post_header, cfg.reset_output)
-    ensure_csv_with_header(comments_csv, comment_header, cfg.reset_output)
-    ensure_csv_with_header(errors_csv, error_header, cfg.reset_output)
-
-    checkpoint = load_checkpoint(output_dir) if cfg.resume else None
-    start_index = cfg.start_index
-    if checkpoint is not None:
-        start_index = max(start_index, int(checkpoint.get("next_index", start_index)))
-
-    end_index = len(urls)
-    if cfg.limit is not None:
-        end_index = min(end_index, start_index + cfg.limit)
-
-    session = build_session(cfg.cookie_header)
-    started_at = checkpoint.get("started_at_utc") if checkpoint else iso_utc_now()
-
-    processed = int(checkpoint.get("processed", 0)) if checkpoint else 0
-    posts_count = int(checkpoint.get("posts", 0)) if checkpoint else 1
-    comments_count = int(checkpoint.get("comments", 0)) if checkpoint else 1
-    errors_count = int(checkpoint.get("errors", 0)) if checkpoint else 1
-
-    def persist_checkpoint(next_index: int, force: bool = False) -> None:
-        if force or processed % cfg.checkpoint_every == 0:
-            save_checkpoint(
-                output_dir,
-                {
-                    "started_at_utc": started_at,
-                    "updated_at_utc": iso_utc_now(),
-                    "next_index": next_index,
-                    "processed": processed,
-                    "posts": posts_count,
-                    "comments": comments_count,
-                    "errors": errors_count,
-                    "total_urls": len(urls),
-                },
-            )
-
+    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
+    metrics = _initial_metrics(cfg, urls, checkpoint)
+    session = _build_session(cfg.cookie_header)
+    context = _RunContext(
+        cfg=cfg,
+        session=session,
+        output_paths=output_paths,
+        headers={
+            "posts": post_header,
+            "comments": comment_header,
+            "errors": error_header,
+        },
+        total_urls=len(urls),
+        metrics=metrics,
+    )
     try:
-        for index in range(start_index, end_index):
-            post_url = urls[index]
-            shortcode = extract_shortcode(post_url)
-            if not shortcode:
-                err = {
-                    "index": index,
-                    "post_url": post_url,
-                    "shortcode": None,
-                    "media_id": None,
-                    "stage": "extract_shortcode",
-                    "error": "missing_shortcode",
-                }
-                write_json_line(errors_ndjson, err)
-                append_csv_row(errors_csv, error_header, err)
-                errors_count += 1
-                processed += 1
-                persist_checkpoint(index + 1, force=True)
-                continue
-
-            media_id, media_id_error = fetch_media_id(session, post_url, shortcode, cfg)
-            if not media_id:
-                err = {
-                    "index": index,
-                    "post_url": post_url,
-                    "shortcode": shortcode,
-                    "media_id": None,
-                    "stage": "fetch_media_id",
-                    "error": media_id_error or "media_id_not_found",
-                }
-                write_json_line(errors_ndjson, err)
-                append_csv_row(errors_csv, error_header, err)
-                errors_count += 1
-                processed += 1
-                persist_checkpoint(index + 1, force=True)
-                randomized_delay(cfg)
-                continue
-
-            media_info, media_info_error = fetch_media_info(session, media_id, cfg)
-            if not media_info:
-                err = {
-                    "index": index,
-                    "post_url": post_url,
-                    "shortcode": shortcode,
-                    "media_id": media_id,
-                    "stage": "fetch_media_info",
-                    "error": media_info_error or "media_info_failed",
-                }
-                write_json_line(errors_ndjson, err)
-                append_csv_row(errors_csv, error_header, err)
-                errors_count += 1
-                processed += 1
-                persist_checkpoint(index + 1, force=True)
-                randomized_delay(cfg)
-                continue
-
-            caption_obj = media_info.get("caption") or {}
-            post_row = {
-                "media_id": media_id,
-                "shortcode": shortcode,
-                "post_url": post_url,
-                "type": media_info.get("media_type"),
-                "taken_at_utc": media_info.get("taken_at_utc"),
-                "caption": caption_obj.get("text"),
-                "like_count": media_info.get("like_count"),
-                "comment_count": media_info.get("comment_count"),
-            }
-            write_json_line(posts_ndjson, post_row)
-            append_csv_row(posts_csv, post_header, post_row)
-            posts_count += 1
-
-            post_comments = []
-            comments_error = None
-            declared_comment_count = post_row.get("comment_count")
-            if isinstance(declared_comment_count, int) and declared_comment_count > 0:
-                post_comments, comments_error = fetch_comments(session, media_id, cfg)
-
-            for comment in post_comments:
-                row = {
-                    "media_id": media_id,
-                    "shortcode": shortcode,
-                    "post_url": post_url,
-                    **comment,
-                }
-                write_json_line(comments_ndjson, row)
-                append_csv_row(comments_csv, comment_header, row)
-                comments_count += 1
-
-            if comments_error:
-                err = {
-                    "index": index,
-                    "post_url": post_url,
-                    "shortcode": shortcode,
-                    "media_id": media_id,
-                    "stage": "fetch_comments",
-                    "error": comments_error,
-                }
-                write_json_line(errors_ndjson, err)
-                append_csv_row(errors_csv, error_header, err)
-                errors_count += 1
-            processed += 1
-            persist_checkpoint(index + 1)
-            randomized_delay(cfg)
+        for index in range(metrics["start_index"], metrics["end_index"]):
+            _process_url(context, index, urls[index])
     finally:
         session.close()
-
-    finished_at = iso_utc_now()
-
-    username = output_dir.name or "unknown"
-
-    summary = {
-        "target_profile": username,
-        "source_url": f"https://www.instagram.com/{username}/?hl=en"
-        if username != "unknown"
-        else None,
-        "started_at_utc": started_at,
-        "finished_at_utc": finished_at,
-        "range": {"start_index": start_index, "end_index_exclusive": end_index},
-        "processed": processed,
-        "posts": posts_count,
-        "comments": comments_count,
-        "errors": errors_count,
-        "files": {
-            "posts_csv": str(posts_csv),
-            "comments_csv": str(comments_csv),
-            "errors_csv": str(errors_csv),
-            "posts_ndjson": str(posts_ndjson),
-            "comments_ndjson": str(comments_ndjson),
-            "errors_ndjson": str(errors_ndjson),
-            "checkpoint": str(checkpoint_path(output_dir)),
-        },
-    }
-
-    atomic_write_text(output_dir / "summary.json", json.dumps(summary, indent=2))
-    save_checkpoint(
-        output_dir,
-        {
-            "started_at_utc": started_at,
-            "updated_at_utc": finished_at,
-            "next_index": end_index,
-            "processed": processed,
-            "posts": posts_count,
-            "comments": comments_count,
-            "errors": errors_count,
-            "total_urls": len(urls),
-            "completed": end_index >= len(urls),
-        },
+    summary = _build_summary(cfg.output_dir, output_paths, metrics)
+    _atomic_write_text(
+        cfg.output_dir / "summary.json",
+        json.dumps(summary, indent=2),
+    )
+    _save_checkpoint(
+        cfg.output_dir,
+        _checkpoint_state(metrics, len(urls), completed=True),
     )
     return summary
 
 
 def main() -> None:
-    config = parse_args()
-    summary = run(config)
-    print(json.dumps(summary))
+    """Run the browser-dump scraper and emit the final summary as JSON."""
+    summary = run(parse_args())
+    sys.stdout.write(json.dumps(summary) + "\n")
+
+
+def _default_data_dir() -> Path:
+    return Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
+
+
+def _default_username() -> str:
+    return os.getenv("INSTAGRAM_USERNAME", DEFAULT_USERNAME_FALLBACK)
+
+
+def _default_tool_dump_path() -> Path:
+    return _default_data_dir() / "tool_dump.json"
+
+
+def _default_output_dir() -> Path:
+    return _default_data_dir() / _default_username()
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _load_urls_from_tool_dump(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    for payload in _tool_dump_payloads(text):
+        urls = payload.get("urls")
+        if isinstance(urls, list) and all(isinstance(url, str) for url in urls):
+            return [url for url in urls if isinstance(url, str)]
+    message = "Could not parse URL payload from tool dump"
+    raise ValueError(message)
+
+
+def _tool_dump_payloads(text: str) -> Generator[dict[str, object]]:
+    start = text.find('{"count"')
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        raw_payload = json.loads(text[start : end + 1])
+        if isinstance(raw_payload, dict):
+            yield cast("dict[str, object]", raw_payload)
+    fenced_start = text.find("```json")
+    fenced_end = text.rfind("```")
+    if fenced_start != -1 and fenced_end > fenced_start:
+        raw_payload = json.loads(
+            text[fenced_start + len("```json") : fenced_end].strip(),
+        )
+        if isinstance(raw_payload, dict):
+            yield cast("dict[str, object]", raw_payload)
+
+
+def _cookie_value(cookie_header: str, key: str) -> str | None:
+    match = re.search(r"(?:^|; )" + re.escape(key) + r"=([^;]+)", cookie_header)
+    return None if match is None else match.group(1)
+
+
+def _build_session(cookie_header: str) -> requests.Session:
+    session = requests.Session()
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": cookie_header,
+    }
+    app_id = os.getenv("INSTAGRAM_APP_ID")
+    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
+    if app_id:
+        headers["X-IG-App-ID"] = app_id
+    if asbd_id:
+        headers["X-ASBD-ID"] = asbd_id
+    csrftoken = _cookie_value(cookie_header, "csrftoken")
+    session.headers.update(headers)
+    if csrftoken:
+        session.headers["X-CSRFToken"] = csrftoken
+    return session
+
+
+def _randomized_delay(cfg: Config, *, extra_scale: float = 1.0) -> None:
+    low = cfg.min_delay * extra_scale
+    high = cfg.max_delay * extra_scale
+    time.sleep(RANDOM.uniform(low, high))
+
+
+def _request_with_retry(
+    session: requests.Session,
+    url: str,
+    cfg: Config,
+    *,
+    params: dict[str, str] | None = None,
+) -> tuple[requests.Response | None, str | None]:
+    last_error: str | None = None
+    for attempt in range(1, cfg.max_retries + 1):
+        try:
+            response = session.get(url, params=params, timeout=cfg.request_timeout)
+        except requests.RequestException as exc:
+            last_error = f"request_exception:{exc.__class__.__name__}"
+            _randomized_delay(
+                cfg,
+                extra_scale=cfg.base_retry_seconds * (2 ** (attempt - 1)),
+            )
+            continue
+        if response.status_code == SUCCESS_STATUS:
+            return response, None
+        if response.status_code in RETRYABLE_STATUSES:
+            retry_after = response.headers.get("Retry-After")
+            wait_seconds = (
+                float(retry_after)
+                if retry_after and retry_after.isdigit()
+                else cfg.base_retry_seconds * (2 ** (attempt - 1))
+            )
+            last_error = f"http_{response.status_code}"
+            _randomized_delay(cfg, extra_scale=wait_seconds)
+            continue
+        return None, f"http_{response.status_code}"
+    return None, last_error or "request_failed"
+
+
+def _extract_shortcode(url: str) -> str | None:
+    match = re.search(r"/(?:p|reel)/([^/]+)/", url)
+    return None if match is None else match.group(1)
+
+
+def _extract_media_id_from_html(
+    html: str,
+    shortcode: str,
+) -> tuple[str | None, str | None]:
+    primary = re.search(r'"media_id":"(\d+)"', html)
+    if primary is not None:
+        return primary.group(1), None
+    escaped_shortcode = re.escape(shortcode)
+    secondary = re.search(
+        rf'"shortcode":"{escaped_shortcode}".*?"id":"(\d+)"',
+        html,
+        re.DOTALL,
+    )
+    if secondary is None:
+        return None, "media_id_not_found"
+    return secondary.group(1), None
+
+
+def _fetch_media_info(
+    session: requests.Session,
+    media_id: str,
+    cfg: Config,
+) -> tuple[dict[str, object] | None, str | None]:
+    url = f"https://www.instagram.com/api/v1/media/{media_id}/info/"
+    response, error = _request_with_retry(session, url, cfg)
+    if response is None:
+        return None, error or "media_info_request_failed"
+    payload = _json_payload(response)
+    if payload is None:
+        return None, _json_error(response, "media_info")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        return None, "media_info_empty"
+    first = items[0]
+    if not isinstance(first, dict):
+        return None, "media_info_invalid"
+    return cast("dict[str, object]", first), None
+
+
+def _fetch_comments(
+    session: requests.Session,
+    media_id: str,
+    cfg: Config,
+) -> tuple[list[_CommentRow], str | None]:
+    comments: list[_CommentRow] = []
+    max_id: str | None = None
+    for _ in range(cfg.max_comment_pages):
+        params = {
+            "can_support_threading": "true",
+            "permalink_enabled": "false",
+        }
+        if max_id is not None:
+            params["max_id"] = max_id
+        response, error = _request_with_retry(
+            session,
+            f"https://www.instagram.com/api/v1/media/{media_id}/comments/",
+            cfg,
+            params=params,
+        )
+        if response is None:
+            return comments, error or "comments_request_failed"
+        payload = _json_payload(response)
+        if payload is None:
+            return comments, _json_error(response, "comments")
+        page_comments = payload.get("comments")
+        if isinstance(page_comments, list):
+            comments.extend(_comment_rows(cast("list[object]", page_comments)))
+        has_more = bool(payload.get("has_more_comments"))
+        next_cursor = payload.get("next_max_id") or payload.get("next_min_id")
+        if not has_more or not isinstance(next_cursor, str):
+            return comments, None
+        max_id = next_cursor
+        _randomized_delay(cfg, extra_scale=1.5)
+    return comments, "comments_page_guard_exhausted"
+
+
+def _comment_rows(comments: list[object]) -> list[_CommentRow]:
+    rows: list[_CommentRow] = []
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        comment_dict = cast("dict[str, object]", comment)
+        user = comment_dict.get("user")
+        if not isinstance(user, dict):
+            user = {}
+        user_dict = cast("dict[str, object]", user)
+        rows.append(
+            {
+                "id": str(comment_dict.get("pk") or ""),
+                "created_at_utc": _optional_int(comment_dict.get("created_at_utc")),
+                "text": _optional_str(comment_dict.get("text")),
+                "comment_like_count": _optional_int(
+                    comment_dict.get("comment_like_count"),
+                ),
+                "owner_username": _optional_str(user_dict.get("username")),
+                "owner_id": str(user_dict.get("pk") or ""),
+            },
+        )
+    return rows
+
+
+@contextmanager
+def _locked_path(path: Path) -> Generator[None]:
+    lock_path = path.with_suffix(f"{path.suffix}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        if os.name == "nt":
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write("\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    with _locked_path(path):
+        try:
+            temp_path.write_text(content, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+
+def _write_json_line(path: Path, payload: dict[str, object]) -> None:
+    with _locked_path(path), path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        file.flush()
+        os.fsync(file.fileno())
+
+
+def _ensure_csv_with_header(path: Path, header: list[str], *, reset: bool) -> None:
+    with _locked_path(path):
+        if reset and path.exists():
+            path.unlink()
+        if not path.exists():
+            with path.open("w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=header)
+                writer.writeheader()
+                file.flush()
+                os.fsync(file.fileno())
+
+
+def _append_csv_row(path: Path, header: list[str], row: dict[str, object]) -> None:
+    with _locked_path(path), path.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=header)
+        writer.writerow(row)
+        file.flush()
+        os.fsync(file.fileno())
+
+
+def _checkpoint_path(output_dir: Path) -> Path:
+    return output_dir / "checkpoint.json"
+
+
+def _load_checkpoint(output_dir: Path) -> _CheckpointState | None:
+    path = _checkpoint_path(output_dir)
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return None
+    return cast("_CheckpointState", payload)
+
+
+def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
+    _atomic_write_text(_checkpoint_path(output_dir), json.dumps(state, indent=2))
+
+
+def _prepare_output(cfg: Config) -> _OutputPaths:
+    cfg.output_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.reset_output:
+        for name in (
+            "posts.ndjson",
+            "comments.ndjson",
+            "errors.ndjson",
+            "posts.csv",
+            "comments.csv",
+            "errors.csv",
+            "summary.json",
+            "checkpoint.json",
+        ):
+            path = cfg.output_dir / name
+            if path.exists():
+                path.unlink()
+    return {
+        "posts_ndjson": cfg.output_dir / "posts.ndjson",
+        "comments_ndjson": cfg.output_dir / "comments.ndjson",
+        "errors_ndjson": cfg.output_dir / "errors.ndjson",
+        "posts_csv": cfg.output_dir / "posts.csv",
+        "comments_csv": cfg.output_dir / "comments.csv",
+        "errors_csv": cfg.output_dir / "errors.csv",
+    }
+
+
+def _initial_metrics(
+    cfg: Config,
+    urls: list[str],
+    checkpoint: _CheckpointState | None,
+) -> _RunMetrics:
+    start_index = cfg.start_index
+    if checkpoint is not None:
+        start_index = max(start_index, checkpoint["next_index"])
+    end_index = (
+        len(urls)
+        if cfg.limit is None
+        else min(len(urls), start_index + cfg.limit)
+    )
+    started_at = checkpoint["started_at_utc"] if checkpoint else _iso_utc_now()
+    return {
+        "start_index": start_index,
+        "end_index": end_index,
+        "started_at_utc": started_at,
+        "processed": checkpoint["processed"] if checkpoint else 0,
+        "posts": checkpoint["posts"] if checkpoint else 0,
+        "comments": checkpoint["comments"] if checkpoint else 0,
+        "errors": checkpoint["errors"] if checkpoint else 0,
+    }
+
+
+def _process_url(context: _RunContext, index: int, post_url: str) -> None:
+    shortcode = _extract_shortcode(post_url)
+    if shortcode is None:
+        error_row: _ErrorRow = {
+            "index": index,
+            "post_url": post_url,
+            "shortcode": None,
+            "media_id": None,
+            "stage": "extract_shortcode",
+            "error": "missing_shortcode",
+        }
+        _record_error(error_row, context.output_paths, context.headers["errors"])
+        _increment_metric(context.metrics, "errors")
+        _increment_metric(context.metrics, "processed")
+        _save_checkpoint(
+            context.cfg.output_dir,
+            _checkpoint_state(
+                context.metrics,
+                context.total_urls,
+                next_index=index + 1,
+            ),
+        )
+        return
+    media_id, media_id_error = fetch_media_id(
+        context.session,
+        post_url,
+        shortcode,
+        context.cfg,
+    )
+    if media_id is None:
+        error_row: _ErrorRow = {
+            "index": index,
+            "post_url": post_url,
+            "shortcode": shortcode,
+            "media_id": None,
+            "stage": "fetch_media_id",
+            "error": media_id_error or "media_id_not_found",
+        }
+        _record_error(error_row, context.output_paths, context.headers["errors"])
+        _increment_metric(context.metrics, "errors")
+        _increment_metric(context.metrics, "processed")
+        _save_checkpoint(
+            context.cfg.output_dir,
+            _checkpoint_state(
+                context.metrics,
+                context.total_urls,
+                next_index=index + 1,
+            ),
+        )
+        _randomized_delay(context.cfg)
+        return
+    _process_media(context, index, post_url, shortcode, media_id)
+    _increment_metric(context.metrics, "processed")
+    if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
+        _save_checkpoint(
+            context.cfg.output_dir,
+            _checkpoint_state(
+                context.metrics,
+                context.total_urls,
+                next_index=index + 1,
+            ),
+        )
+    _randomized_delay(context.cfg)
+
+
+def _process_media(
+    context: _RunContext,
+    index: int,
+    post_url: str,
+    shortcode: str,
+    media_id: str,
+) -> None:
+    media_info, media_info_error = _fetch_media_info(
+        context.session,
+        media_id,
+        context.cfg,
+    )
+    if media_info is None:
+        error_row: _ErrorRow = {
+            "index": index,
+            "post_url": post_url,
+            "shortcode": shortcode,
+            "media_id": media_id,
+            "stage": "fetch_media_info",
+            "error": media_info_error or "media_info_failed",
+        }
+        _record_error(error_row, context.output_paths, context.headers["errors"])
+        _increment_metric(context.metrics, "errors")
+        _save_checkpoint(
+            context.cfg.output_dir,
+            _checkpoint_state(
+                context.metrics,
+                context.total_urls,
+                next_index=index + 1,
+            ),
+        )
+        _randomized_delay(context.cfg)
+        return
+    post_row = _post_row(media_id, shortcode, post_url, media_info)
+    post_payload = _post_payload(post_row)
+    _write_json_line(context.output_paths["posts_ndjson"], post_payload)
+    _append_csv_row(
+        context.output_paths["posts_csv"],
+        context.headers["posts"],
+        post_payload,
+    )
+    _increment_metric(context.metrics, "posts")
+    comments_error = _write_comments(context, media_id, shortcode, post_url, post_row)
+    if comments_error is not None:
+        error_row: _ErrorRow = {
+            "index": index,
+            "post_url": post_url,
+            "shortcode": shortcode,
+            "media_id": media_id,
+            "stage": "fetch_comments",
+            "error": comments_error,
+        }
+        _record_error(error_row, context.output_paths, context.headers["errors"])
+        _increment_metric(context.metrics, "errors")
+
+
+def _write_comments(
+    context: _RunContext,
+    media_id: str,
+    shortcode: str,
+    post_url: str,
+    post_row: _PostRow,
+) -> str | None:
+    declared_comment_count = post_row["comment_count"]
+    if declared_comment_count is None or declared_comment_count <= 0:
+        return None
+    post_comments, comments_error = _fetch_comments(
+        context.session,
+        media_id,
+        context.cfg,
+    )
+    for comment in post_comments:
+        row = {
+            "media_id": media_id,
+            "shortcode": shortcode,
+            "post_url": post_url,
+            **comment,
+        }
+        _write_json_line(context.output_paths["comments_ndjson"], row)
+        _append_csv_row(
+            context.output_paths["comments_csv"],
+            context.headers["comments"],
+            row,
+        )
+        _increment_metric(context.metrics, "comments")
+    return comments_error
+
+
+def _post_row(
+    media_id: str,
+    shortcode: str,
+    post_url: str,
+    media_info: dict[str, object],
+) -> _PostRow:
+    caption = media_info.get("caption")
+    caption_text: str | None = None
+    if isinstance(caption, dict):
+        caption_text = _optional_str(cast("dict[str, object]", caption).get("text"))
+    return {
+        "media_id": media_id,
+        "shortcode": shortcode,
+        "post_url": post_url,
+        "type": _optional_int(media_info.get("media_type")),
+        "taken_at_utc": _optional_int(media_info.get("taken_at_utc")),
+        "caption": caption_text,
+        "like_count": _optional_int(media_info.get("like_count")),
+        "comment_count": _optional_int(media_info.get("comment_count")),
+    }
+
+
+def _record_error(
+    error_row: _ErrorRow,
+    output_paths: _OutputPaths,
+    error_header: list[str],
+) -> None:
+    error_payload = dict(error_row)
+    _write_json_line(output_paths["errors_ndjson"], error_payload)
+    _append_csv_row(output_paths["errors_csv"], error_header, error_payload)
+
+
+def _checkpoint_state(
+    metrics: _RunMetrics,
+    total_urls: int,
+    *,
+    next_index: int | None = None,
+    completed: bool | None = None,
+) -> _CheckpointState:
+    state: _CheckpointState = {
+        "started_at_utc": metrics["started_at_utc"],
+        "updated_at_utc": _iso_utc_now(),
+        "next_index": metrics["end_index"] if next_index is None else next_index,
+        "processed": metrics["processed"],
+        "posts": metrics["posts"],
+        "comments": metrics["comments"],
+        "errors": metrics["errors"],
+        "total_urls": total_urls,
+    }
+    if completed is not None:
+        state["completed"] = completed
+    return state
+
+
+def _build_summary(
+    output_dir: Path,
+    output_paths: _OutputPaths,
+    metrics: _RunMetrics,
+) -> dict[str, object]:
+    username = output_dir.name or "unknown"
+    return {
+        "target_profile": username,
+        "source_url": (
+            f"https://www.instagram.com/{username}/?hl=en"
+            if username != "unknown"
+            else None
+        ),
+        "started_at_utc": metrics["started_at_utc"],
+        "finished_at_utc": _iso_utc_now(),
+        "range": {
+            "start_index": metrics["start_index"],
+            "end_index_exclusive": metrics["end_index"],
+        },
+        "processed": metrics["processed"],
+        "posts": metrics["posts"],
+        "comments": metrics["comments"],
+        "errors": metrics["errors"],
+        "files": {
+            "posts_csv": str(output_paths["posts_csv"]),
+            "comments_csv": str(output_paths["comments_csv"]),
+            "errors_csv": str(output_paths["errors_csv"]),
+            "posts_ndjson": str(output_paths["posts_ndjson"]),
+            "comments_ndjson": str(output_paths["comments_ndjson"]),
+            "errors_ndjson": str(output_paths["errors_ndjson"]),
+            "checkpoint": str(_checkpoint_path(output_dir)),
+        },
+    }
+
+
+def _post_payload(post_row: _PostRow) -> dict[str, object]:
+    return {
+        "media_id": post_row["media_id"],
+        "shortcode": post_row["shortcode"],
+        "post_url": post_row["post_url"],
+        "type": post_row["type"],
+        "taken_at_utc": post_row["taken_at_utc"],
+        "caption": post_row["caption"],
+        "like_count": post_row["like_count"],
+        "comment_count": post_row["comment_count"],
+    }
+
+
+def _json_payload(response: requests.Response) -> dict[str, object] | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    return cast("dict[str, object]", payload) if isinstance(payload, dict) else None
+
+
+def _json_error(response: requests.Response, prefix: str) -> str:
+    content_type = (response.headers.get("content-type") or "").lower()
+    preview = (response.text or "")[:120].replace("\n", " ")
+    if "json" not in content_type:
+        return f"{prefix}_non_json:{content_type}:{preview}"
+    return f"{prefix}_json_decode_failed"
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _increment_metric(
+    metrics: _RunMetrics,
+    key: Literal["processed", "posts", "comments", "errors"],
+) -> None:
+    metrics[key] += 1
 
 
 if __name__ == "__main__":

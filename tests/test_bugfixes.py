@@ -42,10 +42,9 @@ def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
     class FakeJsonResponse:
-        headers = {"content-type": "application/json"}
-        text = "{}"
-
         def __init__(self, payload: dict):
+            self.headers = {"content-type": "application/json"}
+            self.text = "{}"
             self._payload = payload
 
         def json(self) -> dict:
@@ -53,13 +52,13 @@ def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> N
 
     calls: list[str] = []
 
-    def fake_request_with_retry(session, url, cfg, params=None):  # noqa: ANN001
+    def fake_request_with_retry(session, url, cfg, params=None):
         calls.append(url)
         if "/api/v1/media/shortcode/" in url:
             return FakeJsonResponse({"items": [{"id": "123456789"}]}), None
         return None, "http_404"
 
-    monkeypatch.setattr(module, "request_with_retry", fake_request_with_retry)
+    monkeypatch.setattr(module, "_request_with_retry", fake_request_with_retry)
 
     cfg = module.Config(
         tool_dump_path=Path("unused"),
@@ -117,10 +116,10 @@ def test_checkpoint_saved_after_error_before_crash(
     def fake_build_session(cookie_header: str):
         return DummySession()
 
-    def crash_fetch_media_id(session, post_url, shortcode, cfg):  # noqa: ANN001
+    def crash_fetch_media_id(session, post_url, shortcode, cfg):
         raise RuntimeError("boom during media id")
 
-    monkeypatch.setattr(module, "build_session", fake_build_session)
+    monkeypatch.setattr(module, "_build_session", fake_build_session)
     monkeypatch.setattr(module, "fetch_media_id", crash_fetch_media_id)
 
     output_dir = tmp_path / "output"
@@ -144,7 +143,9 @@ def test_checkpoint_saved_after_error_before_crash(
     with pytest.raises(RuntimeError, match="boom during media id"):
         module.run(cfg)
 
-    checkpoint = json.loads((output_dir / "checkpoint.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads(
+        (output_dir / "checkpoint.json").read_text(encoding="utf-8"),
+    )
     assert checkpoint["processed"] == 1
     assert checkpoint["next_index"] == 1
 
@@ -157,10 +158,10 @@ def test_download_video_file_cleans_partial_file_on_write_error(
             yield b"partial-data"
             raise OSError("disk write interrupted")
 
-    def fake_request_with_retry(session, url, cfg, stream=False):  # noqa: ANN001, ARG001
+    def fake_request_with_retry(session, url, cfg, stream=False):
         return FakeResponse(), None
 
-    monkeypatch.setattr(videos, "request_with_retry", fake_request_with_retry)
+    monkeypatch.setattr(videos, "_request_with_retry", fake_request_with_retry)
 
     cfg = videos.Config(
         output_dir=tmp_path,
