@@ -1,10 +1,23 @@
 # Copyright (c) 2026
 """CLI helpers for the package entrypoint."""
 
-import sys
+import typer
+
+app = typer.Typer()
+scrape_app = typer.Typer()
+app.add_typer(scrape_app, name="scrape")
+
+
+@scrape_app.command("profile")
+def scrape_profile() -> None:
+    raise NotImplementedError
+
+
+@scrape_app.command("url")
+def scrape_url() -> None:
+    raise NotImplementedError
 
 
 def main() -> None:
-    """Write the package banner to standard output."""
-    # CLI programs usually communicate by printing text for the terminal to show.
-    sys.stdout.write("Hello from instagram-scraper!\n")
+    """Run the Typer application."""
+    app()
