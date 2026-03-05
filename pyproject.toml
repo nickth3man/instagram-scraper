@@ -1,0 +1,29 @@
+[project]
+name = "instagram-scraper"
+version = "0.1.0"
+description = "Instagram scraping workflows and data collection"
+readme = "README.md"
+authors = [
+    { name = "Nicolas Alexander", email = "nickth3man@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "instaloader>=4.15",
+    "requests>=2.32.5",
+]
+
+[project.scripts]
+instagram-scraper = "instagram_scraper:main"
+instagram-scraper-profile = "instagram_scraper.scrape_instagram_profile:main"
+instagram-scraper-browser-dump = "instagram_scraper.scrape_instagram_from_browser_dump:main"
+instagram-scraper-download-videos = "instagram_scraper.download_instagram_videos:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.4",
+]
