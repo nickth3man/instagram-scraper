@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """Scrape Instagram post metadata and comments from a browser-tool URL dump."""
 
 from __future__ import annotations

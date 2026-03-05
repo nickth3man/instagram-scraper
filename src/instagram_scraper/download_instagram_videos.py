@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """Download Instagram video files from previously scraped metadata."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """CLI helpers for the package entrypoint."""
 
 import sys

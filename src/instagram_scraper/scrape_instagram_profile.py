@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """Scrape an Instagram profile into JSON and CSV artifacts."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """Shared filesystem helpers for scraper outputs and checkpoints."""
 
 from __future__ import annotations

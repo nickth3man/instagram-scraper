@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Nicolas Alexander
+# Copyright (c) 2026
 """Shared Instagram HTTP helpers."""
 
 from __future__ import annotations
