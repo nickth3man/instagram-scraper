@@ -8,11 +8,12 @@ import json
 import os
 import time
 from contextlib import contextmanager
+from datetime import date, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
 if os.name == "nt":
     import msvcrt
@@ -69,7 +70,7 @@ def write_json_line(path: Path, payload: dict[str, object]) -> None:
     with locked_path(path), path.open("a", encoding="utf-8") as file:
         # NDJSON stores one JSON object per line, which makes large scrape outputs
         # easy to append to and stream later.
-        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        file.write(_json_dumps(payload) + "\n")
         file.flush()
         os.fsync(file.fileno())
 
@@ -113,3 +114,37 @@ def load_json_dict(path: Path) -> dict[str, object] | None:
     # files are treated as an expected case instead of an error.
     payload = json.loads(path.read_text(encoding="utf-8"))
     return cast("dict[str, object]", payload) if isinstance(payload, dict) else None
+
+
+def _json_dumps(payload: dict[str, object]) -> str:
+    """Serialize structured payloads with support for common path/date objects.
+
+    Returns
+    -------
+    str
+        The JSON-encoded payload string.
+
+    """
+    return json.dumps(payload, ensure_ascii=False, default=_json_default)
+
+
+def _json_default(value: object) -> str:
+    """Normalize non-JSON-native values for output files.
+
+    Returns
+    -------
+    str
+        A string representation suitable for JSON output.
+
+    Raises
+    ------
+    TypeError
+        Raised when the value cannot be normalized into JSON output.
+
+    """
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    message = f"Object of type {type(value).__name__} is not JSON serializable"
+    raise TypeError(message)

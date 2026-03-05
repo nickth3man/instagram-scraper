@@ -32,3 +32,23 @@ class RunSummary(BaseModel):
     comments: int = 0
     errors: int = 0
     output_dir: Path
+
+
+class TargetRecord(BaseModel):
+    """Normalized discovery target emitted by seed providers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str
+    target_kind: str
+    target_value: str
+
+
+class ModeDescriptor(BaseModel):
+    """Describes support level and auth requirements for a scrape mode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str
+    support_tier: str
+    requires_auth: bool = False

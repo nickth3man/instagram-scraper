@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from random import SystemRandom
 from typing import cast
 
+import httpx
 import requests
 
 DEFAULT_USER_AGENT = os.getenv(
@@ -36,18 +37,19 @@ class RetryConfig:
     base_retry_seconds: float
 
 
-def build_instagram_session(cookie_header: str) -> requests.Session:
-    """Create a session with the headers Instagram endpoints expect.
+def build_instagram_client(cookie_header: str) -> httpx.Client:
+    """Create an HTTPX client with the headers Instagram endpoints expect.
 
     Returns
     -------
-    requests.Session
-        A configured session ready for Instagram requests.
+    httpx.Client
+        A configured HTTPX client ready for Instagram requests.
 
     """
-    session = requests.Session()
-    # These headers make our requests look like a normal browser session instead
-    # of a completely generic script.
+    return httpx.Client(headers=_instagram_headers(cookie_header))
+
+
+def _instagram_headers(cookie_header: str) -> dict[str, str]:
     headers = {
         "User-Agent": DEFAULT_USER_AGENT,
         "X-Requested-With": "XMLHttpRequest",
@@ -61,6 +63,22 @@ def build_instagram_session(cookie_header: str) -> requests.Session:
         headers["X-IG-App-ID"] = app_id
     if asbd_id:
         headers["X-ASBD-ID"] = asbd_id
+    return headers
+
+
+def build_instagram_session(cookie_header: str) -> requests.Session:
+    """Create a session with the headers Instagram endpoints expect.
+
+    Returns
+    -------
+    requests.Session
+        A configured session ready for Instagram requests.
+
+    """
+    session = requests.Session()
+    # These headers make our requests look like a normal browser session instead
+    # of a completely generic script.
+    headers = _instagram_headers(cookie_header)
     csrftoken = cookie_value(cookie_header, "csrftoken")
     session.headers.update(headers)
     if csrftoken:
