@@ -11,6 +11,13 @@ app = typer.Typer(help="Unified one-shot Instagram scraping CLI.")
 scrape_app = typer.Typer()
 app.add_typer(scrape_app, name="scrape")
 
+_SHARED_PIPELINE_OPTIONS: dict[str, object] = {
+    "raw_captures": False,
+    "request_timeout": 30,
+    "max_retries": 5,
+    "checkpoint_every": 20,
+}
+
 USERNAME_OPTION = typer.Option(..., "--username")
 URL_OPTION = typer.Option(..., "--url", "--post-url")
 HASHTAG_OPTION = typer.Option(..., "--hashtag")
@@ -27,23 +34,44 @@ STORIES_HASHTAG_OPTION = typer.Option(None, "--hashtag")
 STORIES_SEED_MESSAGE = "Provide exactly one of --username or --hashtag."
 
 
+@scrape_app.callback()
+def configure_scrape(
+    *,
+    raw_captures: bool | None = typer.Option(
+        None,
+        "--raw-captures/--no-raw-captures",
+    ),
+    request_timeout: int = typer.Option(30, "--request-timeout"),
+    max_retries: int = typer.Option(5, "--max-retries"),
+    checkpoint_every: int = typer.Option(20, "--checkpoint-every"),
+) -> None:
+    """Capture shared runtime controls for scrape subcommands."""
+    _SHARED_PIPELINE_OPTIONS.update(
+        {
+            "raw_captures": bool(raw_captures),
+            "request_timeout": request_timeout,
+            "max_retries": max_retries,
+            "checkpoint_every": checkpoint_every,
+        },
+    )
+
+
+def _pipeline_kwargs(**kwargs: object) -> dict[str, object]:
+    return {**_SHARED_PIPELINE_OPTIONS, **kwargs}
+
+
+def _run(mode: str, **kwargs: object) -> None:
+    raise typer.Exit(run_pipeline(mode, **_pipeline_kwargs(**kwargs)))
+
+
 @scrape_app.command("profile")
 def scrape_profile(
     *,
     username: str = USERNAME_OPTION,
     output_dir: Path | None = OUTPUT_DIR_OPTION,
 ) -> None:
-    """Run unified profile scraping.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline("profile", username=username, output_dir=output_dir),
-    )
+    """Run unified profile scraping."""
+    _run("profile", username=username, output_dir=output_dir)
 
 
 @scrape_app.command("url")
@@ -53,22 +81,13 @@ def scrape_url(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified direct-URL scraping.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "url",
-            post_url=post_url,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified direct-URL scraping."""
+    _run(
+        "url",
+        post_url=post_url,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -81,24 +100,15 @@ def scrape_urls(
     reset_output: bool | None = RESET_OUTPUT_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified multi-URL scraping.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "urls",
-            input_path=input_path,
-            output_dir=output_dir,
-            resume=bool(resume),
-            reset_output=bool(reset_output),
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified multi-URL scraping."""
+    _run(
+        "urls",
+        input_path=input_path,
+        output_dir=output_dir,
+        resume=bool(resume),
+        reset_output=bool(reset_output),
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -110,23 +120,14 @@ def scrape_hashtag(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified hashtag scraping.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "hashtag",
-            hashtag=hashtag,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified hashtag scraping."""
+    _run(
+        "hashtag",
+        hashtag=hashtag,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -138,23 +139,14 @@ def scrape_location(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified location scraping.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "location",
-            location=location,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified location scraping."""
+    _run(
+        "location",
+        location=location,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -166,23 +158,14 @@ def scrape_followers(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified followers discovery.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "followers",
-            username=username,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified followers discovery."""
+    _run(
+        "followers",
+        username=username,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -194,23 +177,14 @@ def scrape_following(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified following discovery.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "following",
-            username=username,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified following discovery."""
+    _run(
+        "following",
+        username=username,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -223,24 +197,15 @@ def scrape_likers(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified likers discovery.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "likers",
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified likers discovery."""
+    _run(
+        "likers",
+        username=username,
+        posts_limit=posts_limit,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -253,24 +218,15 @@ def scrape_commenters(
     output_dir: Path | None = OUTPUT_DIR_OPTION,
     cookie_header: str = COOKIE_HEADER_OPTION,
 ) -> None:
-    """Run unified commenters discovery.
-
-    Raises
-    ------
-    Exit
-        Raised with the pipeline exit code.
-
-    """
-    raise typer.Exit(
-        run_pipeline(
-            "commenters",
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+    """Run unified commenters discovery."""
+    _run(
+        "commenters",
+        username=username,
+        posts_limit=posts_limit,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
@@ -289,23 +245,18 @@ def scrape_stories(
     ------
     BadParameter
         Raised when the seed options are invalid.
-    Exit
-        Raised with the pipeline exit code.
 
     """
     if (username is None) == (hashtag is None):
-        message = STORIES_SEED_MESSAGE
-        raise typer.BadParameter(message)
-    raise typer.Exit(
-        run_pipeline(
-            "stories",
-            username=username,
-            hashtag=hashtag,
-            limit=limit,
-            output_dir=output_dir,
-            cookie_header=cookie_header,
-            has_auth=bool(cookie_header),
-        ),
+        raise typer.BadParameter(STORIES_SEED_MESSAGE)
+    _run(
+        "stories",
+        username=username,
+        hashtag=hashtag,
+        limit=limit,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        has_auth=bool(cookie_header),
     )
 
 
