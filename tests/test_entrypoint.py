@@ -1,9 +1,20 @@
 import importlib
 
+from typer.testing import CliRunner
 
-def test_main_prints_banner(capsys) -> None:
-    # Import the package the same way a normal user would.
+
+def test_package_exports_cli_app() -> None:
     module = importlib.import_module("instagram_scraper")
-    module.main()
-    captured = capsys.readouterr()
-    assert "instagram-scraper" in captured.out
+    runner = CliRunner()
+    result = runner.invoke(module.app, ["scrape", "--help"])
+    assert result.exit_code == 0
+    assert "profile" in result.stdout
+    assert "urls" in result.stdout
+
+
+def test_root_help_mentions_scrape_subcommand() -> None:
+    module = importlib.import_module("instagram_scraper")
+    runner = CliRunner()
+    result = runner.invoke(module.app, ["--help"])
+    assert result.exit_code == 0
+    assert "scrape" in result.stdout

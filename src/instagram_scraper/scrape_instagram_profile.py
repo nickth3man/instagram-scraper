@@ -178,12 +178,22 @@ def _write_comments_csv(
             writer.writerow(comment)
 
 
-def main() -> None:
-    """Scrape a single Instagram profile and write the resulting files."""
-    args = _parse_args()
-    target_username = args.username
+def run_profile_scrape(
+    *,
+    username: str,
+    output_dir: Path | None = None,
+) -> dict[str, object]:
+    """Scrape a single Instagram profile and return the normalized summary.
+
+    Returns
+    -------
+    dict[str, object]
+        Compact run metrics for the completed scrape.
+
+    """
+    target_username = username
     started_at = datetime.now(UTC)
-    output_dir = _output_dir(target_username)
+    output_dir = output_dir or _output_dir(target_username)
     output_dir.mkdir(parents=True, exist_ok=True)
     # Disable downloads we do not need so this command focuses on metadata and
     # comments instead of saving media files.
@@ -246,17 +256,21 @@ def main() -> None:
         json.dumps(summary, indent=2),
         encoding="utf-8",
     )
+    return {
+        "output_dir": str(output_dir),
+        "posts": len(all_posts),
+        "comments": len(flat_comments),
+        "errors": len(extraction_errors),
+    }
+
+
+def main() -> None:
+    """Scrape a single Instagram profile and write the resulting files."""
+    args = _parse_args()
+    result = run_profile_scrape(username=args.username)
     # CLI tools usually print one compact result line so shell scripts can read it.
     sys.stdout.write(
-        json.dumps(
-            {
-                "output_dir": str(output_dir),
-                "posts": len(all_posts),
-                "comments": len(flat_comments),
-                "errors": len(extraction_errors),
-            },
-        )
-        + "\n",
+        json.dumps(result) + "\n",
     )
 
 

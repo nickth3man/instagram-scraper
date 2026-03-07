@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from random import SystemRandom
 from typing import cast
 
+import httpx
 import requests
 
 DEFAULT_USER_AGENT = os.getenv(
@@ -36,6 +37,38 @@ class RetryConfig:
     base_retry_seconds: float
 
 
+def build_instagram_client(cookie_header: str) -> httpx.Client:
+    """Create an HTTPX client with the headers Instagram endpoints expect.
+
+    Returns
+    -------
+    httpx.Client
+        A configured HTTPX client ready for Instagram requests.
+
+    """
+    return httpx.Client(headers=_instagram_headers(cookie_header))
+
+
+def _instagram_headers(cookie_header: str) -> dict[str, str]:
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": cookie_header,
+    }
+    csrftoken = cookie_value(cookie_header, "csrftoken")
+    if csrftoken:
+        headers["X-CSRFToken"] = csrftoken
+    app_id = os.getenv("INSTAGRAM_APP_ID")
+    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
+    if app_id:
+        headers["X-IG-App-ID"] = app_id
+    if asbd_id:
+        headers["X-ASBD-ID"] = asbd_id
+    return headers
+
+
 def build_instagram_session(cookie_header: str) -> requests.Session:
     """Create a session with the headers Instagram endpoints expect.
 
@@ -48,25 +81,8 @@ def build_instagram_session(cookie_header: str) -> requests.Session:
     session = requests.Session()
     # These headers make our requests look like a normal browser session instead
     # of a completely generic script.
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.instagram.com/",
-        "Cookie": cookie_header,
-    }
-    app_id = os.getenv("INSTAGRAM_APP_ID")
-    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
-    if app_id:
-        headers["X-IG-App-ID"] = app_id
-    if asbd_id:
-        headers["X-ASBD-ID"] = asbd_id
-    csrftoken = cookie_value(cookie_header, "csrftoken")
+    headers = _instagram_headers(cookie_header)
     session.headers.update(headers)
-    if csrftoken:
-        # Some Instagram endpoints expect the CSRF token as both a cookie and a
-        # header, so copy it over when the cookie is present.
-        session.headers["X-CSRFToken"] = csrftoken
     return session
 
 
