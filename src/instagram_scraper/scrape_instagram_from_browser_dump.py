@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict, cast
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -299,6 +300,7 @@ def run_url_scrape(
     cookie_header: str,
     resume: bool = False,
     reset_output: bool = False,
+    **runtime: object,
 ) -> dict[str, object]:
     """Run the browser-dump scraper for an explicit list of post URLs.
 
@@ -308,12 +310,18 @@ def run_url_scrape(
         Summary metadata for the completed scrape.
 
     """
+    _validate_instagram_post_urls(urls)
     output_dir.mkdir(parents=True, exist_ok=True)
     tool_dump_path = output_dir / "tool_dump.json"
     tool_dump_path.write_text(
         json.dumps({"count": len(urls), "urls": urls}, indent=2),
         encoding="utf-8",
     )
+    request_timeout = _runtime_int(runtime.get("request_timeout"), default=30)
+    max_retries = _runtime_int(runtime.get("max_retries"), default=5)
+    checkpoint_every = _runtime_int(runtime.get("checkpoint_every"), default=20)
+    min_delay = _runtime_float(runtime.get("min_delay"), default=0.05)
+    max_delay = _runtime_float(runtime.get("max_delay"), default=0.2)
     return run(
         Config(
             tool_dump_path=tool_dump_path,
@@ -322,12 +330,12 @@ def run_url_scrape(
             reset_output=reset_output,
             start_index=0,
             limit=None,
-            checkpoint_every=20,
+            checkpoint_every=checkpoint_every,
             max_comment_pages=100,
-            min_delay=0.05,
-            max_delay=0.2,
-            request_timeout=30,
-            max_retries=5,
+            min_delay=min_delay,
+            max_delay=max_delay,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
             base_retry_seconds=2.0,
             cookie_header=cookie_header,
         ),
@@ -421,6 +429,32 @@ def _request_with_retry(
 def _extract_shortcode(url: str) -> str | None:
     match = re.search(r"/(?:p|reel)/([^/]+)/", url)
     return None if match is None else match.group(1)
+
+
+def _validate_instagram_post_urls(urls: list[str]) -> None:
+    for url in urls:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            message = "Instagram post URLs must use http or https"
+            raise ValueError(message)
+        if parsed.hostname not in {
+            "instagram.com",
+            "www.instagram.com",
+            "m.instagram.com",
+        }:
+            message = "Instagram post URLs must target instagram.com"
+            raise ValueError(message)
+        if _extract_shortcode(url) is None:
+            message = "Instagram post URLs must target a /p/ or /reel/ path"
+            raise ValueError(message)
+
+
+def _runtime_int(value: object, *, default: int) -> int:
+    return value if isinstance(value, int) else default
+
+
+def _runtime_float(value: object, *, default: float) -> float:
+    return value if isinstance(value, int | float) else default
 
 
 def _extract_media_id_from_html(

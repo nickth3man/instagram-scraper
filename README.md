@@ -29,6 +29,7 @@ uv run instagram-scraper scrape profile --username example
 uv run instagram-scraper scrape url --url https://www.instagram.com/p/example/
 uv run instagram-scraper scrape urls --input data/tool_dump.json
 uv run instagram-scraper scrape hashtag --hashtag cats --cookie-header "sessionid=..."
+uv run instagram-scraper scrape location --location nyc --cookie-header "sessionid=..."
 uv run instagram-scraper scrape followers --username example --cookie-header "sessionid=..."
 uv run instagram-scraper scrape stories --username example --cookie-header "sessionid=..."
 ```

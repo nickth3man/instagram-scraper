@@ -144,7 +144,7 @@ def _json_default(value: object) -> str:
     """
     if isinstance(value, Path):
         return str(value)
-    if isinstance(value, datetime | date):
+    if isinstance(value, (datetime, date)):
         return value.isoformat()
     message = f"Object of type {type(value).__name__} is not JSON serializable"
     raise TypeError(message)

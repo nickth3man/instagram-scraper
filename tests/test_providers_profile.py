@@ -22,4 +22,5 @@ def test_profile_provider_delegates_to_legacy_runner(
     summary = provider.run(username="example", output_dir=tmp_path)
     assert summary.mode == "profile"
     assert summary.posts == 3
+    assert called["username"] == "example"
     assert called["output_dir"] == tmp_path

@@ -1,7 +1,5 @@
 # Unified Instagram Scraper Gap Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Close the major gaps between the approved unified-scraper design and the current scaffolded implementation by expanding the CLI surface, wiring a real normalized pipeline, and wrapping legacy profile and browser-dump flows through the unified command graph.
 
 **Architecture:** Keep the codebase HTTP-first and provider-driven, but move the pipeline from placeholder summaries to a real run orchestration layer. The unified pipeline will own support-tier preflight, target resolution, artifact initialization, support-state storage, summary rendering, and legacy-wrapper execution boundaries.
@@ -13,9 +11,9 @@
 ### Task 1: Expand the CLI Surface to Match the Design
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_cli_app.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_cli_commands.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_cli_app.py`
+- Test: `tests/test_cli_commands.py`
 
 **Step 1: Write the failing test**
 
@@ -103,10 +101,10 @@ git commit -m "feat: expand unified scrape cli surface"
 ### Task 2: Expand the Normalized Models and Capability Metadata
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/models.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/capabilities.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_models.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_capabilities.py`
+- Modify: `src/instagram_scraper/models.py`
+- Modify: `src/instagram_scraper/capabilities.py`
+- Test: `tests/test_models.py`
+- Test: `tests/test_capabilities.py`
 
 **Step 1: Write the failing test**
 
@@ -183,17 +181,17 @@ git commit -m "feat: expand normalized records and mode metadata"
 ### Task 3: Turn the Pipeline Into a Real Artifact-Oriented Run Orchestrator
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/pipeline.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/base.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/hashtag.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/location.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/follow_graph.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/interactions.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/stories.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_presentation.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_storage_db.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_shared_io.py`
-- Add: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_pipeline.py`
+- Modify: `src/instagram_scraper/pipeline.py`
+- Modify: `src/instagram_scraper/providers/base.py`
+- Modify: `src/instagram_scraper/providers/hashtag.py`
+- Modify: `src/instagram_scraper/providers/location.py`
+- Modify: `src/instagram_scraper/providers/follow_graph.py`
+- Modify: `src/instagram_scraper/providers/interactions.py`
+- Modify: `src/instagram_scraper/providers/stories.py`
+- Test: `tests/test_presentation.py`
+- Test: `tests/test_storage_db.py`
+- Test: `tests/test_shared_io.py`
+- Add: `tests/test_pipeline.py`
 
 **Step 1: Write the failing test**
 
@@ -251,16 +249,16 @@ git commit -m "feat: add normalized unified pipeline artifacts"
 ### Task 4: Wrap Legacy Profile and Browser-Dump Flows Through the Unified Providers
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/scrape_instagram_profile.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/scrape_instagram_from_browser_dump.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/profile.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/url.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/README.md`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/docs/README.md`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_providers_profile.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_providers_url.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_entrypoint.py`
+- Modify: `src/instagram_scraper/scrape_instagram_profile.py`
+- Modify: `src/instagram_scraper/scrape_instagram_from_browser_dump.py`
+- Modify: `src/instagram_scraper/providers/profile.py`
+- Modify: `src/instagram_scraper/providers/url.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Modify: `README.md`
+- Modify: `docs/README.md`
+- Test: `tests/test_providers_profile.py`
+- Test: `tests/test_providers_url.py`
+- Test: `tests/test_entrypoint.py`
 
 **Step 1: Write the failing test**
 

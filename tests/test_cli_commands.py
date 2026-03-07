@@ -68,3 +68,37 @@ def test_url_subcommand_passes_runtime_controls(monkeypatch) -> None:
     assert kwargs["request_timeout"] == 15
     assert kwargs["max_retries"] == 2
     assert kwargs["checkpoint_every"] == 7
+
+
+def test_runtime_controls_do_not_leak_between_cli_invocations(monkeypatch) -> None:
+    runner = CliRunner()
+    calls: list[dict[str, object]] = []
+
+    def fake_run(mode: str, **kwargs: object) -> int:
+        calls.append({"mode": mode, "kwargs": kwargs})
+        return 0
+
+    monkeypatch.setattr("instagram_scraper.cli.run_pipeline", fake_run)
+    first = runner.invoke(
+        app,
+        [
+            "scrape",
+            "--raw-captures",
+            "url",
+            "--url",
+            "https://www.instagram.com/p/example/",
+        ],
+    )
+    second = runner.invoke(
+        app,
+        [
+            "scrape",
+            "url",
+            "--url",
+            "https://www.instagram.com/p/example-2/",
+        ],
+    )
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert calls[0]["kwargs"]["raw_captures"] is True
+    assert calls[1]["kwargs"]["raw_captures"] is False

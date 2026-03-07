@@ -2,7 +2,9 @@
 """CLI helpers for the package entrypoint."""
 
 from pathlib import Path
+from typing import cast
 
+import click
 import typer
 
 from instagram_scraper.pipeline import run_pipeline
@@ -10,13 +12,6 @@ from instagram_scraper.pipeline import run_pipeline
 app = typer.Typer(help="Unified one-shot Instagram scraping CLI.")
 scrape_app = typer.Typer()
 app.add_typer(scrape_app, name="scrape")
-
-_SHARED_PIPELINE_OPTIONS: dict[str, object] = {
-    "raw_captures": False,
-    "request_timeout": 30,
-    "max_retries": 5,
-    "checkpoint_every": 20,
-}
 
 USERNAME_OPTION = typer.Option(..., "--username")
 URL_OPTION = typer.Option(..., "--url", "--post-url")
@@ -36,6 +31,7 @@ STORIES_SEED_MESSAGE = "Provide exactly one of --username or --hashtag."
 
 @scrape_app.callback()
 def configure_scrape(
+    ctx: typer.Context,
     *,
     raw_captures: bool | None = typer.Option(
         None,
@@ -46,18 +42,25 @@ def configure_scrape(
     checkpoint_every: int = typer.Option(20, "--checkpoint-every"),
 ) -> None:
     """Capture shared runtime controls for scrape subcommands."""
-    _SHARED_PIPELINE_OPTIONS.update(
-        {
-            "raw_captures": bool(raw_captures),
-            "request_timeout": request_timeout,
-            "max_retries": max_retries,
-            "checkpoint_every": checkpoint_every,
-        },
-    )
+    shared_options: dict[str, object] = {
+        "raw_captures": False,
+        "request_timeout": request_timeout,
+        "max_retries": max_retries,
+        "checkpoint_every": checkpoint_every,
+    }
+    if raw_captures is not None:
+        shared_options["raw_captures"] = raw_captures
+    ctx.obj = shared_options
+
+
+def _current_context() -> typer.Context:
+    return cast("typer.Context", click.get_current_context())
 
 
 def _pipeline_kwargs(**kwargs: object) -> dict[str, object]:
-    return {**_SHARED_PIPELINE_OPTIONS, **kwargs}
+    ctx = _current_context()
+    shared = ctx.obj if isinstance(ctx.obj, dict) else {}
+    return {**shared, **kwargs}
 
 
 def _run(mode: str, **kwargs: object) -> None:

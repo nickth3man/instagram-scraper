@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AppConfig(BaseModel):
@@ -19,3 +19,23 @@ class AppConfig(BaseModel):
     min_delay: float = Field(default=0.05, ge=0)
     max_delay: float = Field(default=0.2, ge=0)
     checkpoint_every: int = Field(default=20, ge=1)
+
+    @model_validator(mode="after")
+    def validate_delay_bounds(self) -> "AppConfig":
+        """Ensure delay bounds are ordered.
+
+        Returns
+        -------
+        AppConfig
+            The validated config instance.
+
+        Raises
+        ------
+        ValueError
+            Raised when `min_delay` exceeds `max_delay`.
+
+        """
+        if self.min_delay > self.max_delay:
+            message = "min_delay must be less than or equal to max_delay"
+            raise ValueError(message)
+        return self

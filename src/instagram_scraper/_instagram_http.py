@@ -57,6 +57,9 @@ def _instagram_headers(cookie_header: str) -> dict[str, str]:
         "Referer": "https://www.instagram.com/",
         "Cookie": cookie_header,
     }
+    csrftoken = cookie_value(cookie_header, "csrftoken")
+    if csrftoken:
+        headers["X-CSRFToken"] = csrftoken
     app_id = os.getenv("INSTAGRAM_APP_ID")
     asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
     if app_id:
@@ -79,12 +82,7 @@ def build_instagram_session(cookie_header: str) -> requests.Session:
     # These headers make our requests look like a normal browser session instead
     # of a completely generic script.
     headers = _instagram_headers(cookie_header)
-    csrftoken = cookie_value(cookie_header, "csrftoken")
     session.headers.update(headers)
-    if csrftoken:
-        # Some Instagram endpoints expect the CSRF token as both a cookie and a
-        # header, so copy it over when the cookie is present.
-        session.headers["X-CSRFToken"] = csrftoken
     return session
 
 

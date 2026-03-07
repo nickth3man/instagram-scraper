@@ -19,3 +19,8 @@ def test_app_config_includes_shared_runtime_controls() -> None:
     assert config.min_delay == pytest.approx(0.05)
     assert config.max_delay == pytest.approx(0.2)
     assert config.checkpoint_every == 20
+
+
+def test_app_config_rejects_min_delay_greater_than_max_delay() -> None:
+    with pytest.raises(ValueError, match="min_delay"):
+        AppConfig(min_delay=0.3, max_delay=0.1)

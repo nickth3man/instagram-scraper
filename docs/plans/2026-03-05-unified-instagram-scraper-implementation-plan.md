@@ -1,7 +1,5 @@
 # Unified Instagram Scraper Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Build a one-shot unified Instagram scraping CLI that preserves username and direct-URL scraping while adding hashtag, location, followers, following, likers, commenters, and stories modes with normalized outputs and support-state storage.
 
 **Architecture:** Keep the scraper HTTP-first and provider-driven. Add a typed `Typer` CLI, `Pydantic` record models, a small `SQLAlchemy` SQLite metadata store, structured logging, Rich terminal output, and narrowly scoped browser-capable auth fallback. Preserve the current scrapers by wrapping them inside the new command graph first, then expand discovery modes in confidence order.
@@ -13,11 +11,11 @@
 ### Task 1: Add Dependencies and CLI Skeleton
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/pyproject.toml`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/__init__.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_cli_app.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_entrypoint.py`
+- Modify: `pyproject.toml`
+- Modify: `src/instagram_scraper/cli.py`
+- Modify: `src/instagram_scraper/__init__.py`
+- Test: `tests/test_cli_app.py`
+- Test: `tests/test_entrypoint.py`
 
 **Step 1: Write the failing test**
 
@@ -75,10 +73,10 @@ git commit -m "feat: add typer cli skeleton"
 ### Task 2: Add Typed CLI Config and Normalized Record Models
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/models.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/config.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_models.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_config.py`
+- Create: `src/instagram_scraper/models.py`
+- Create: `src/instagram_scraper/config.py`
+- Test: `tests/test_models.py`
+- Test: `tests/test_config.py`
 
 **Step 1: Write the failing test**
 
@@ -171,9 +169,9 @@ git commit -m "feat: add validated scraper models"
 ### Task 3: Add Rich Terminal Rendering for Run Summaries
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/presentation.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_presentation.py`
+- Create: `src/instagram_scraper/presentation.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_presentation.py`
 
 **Step 1: Write the failing test**
 
@@ -237,9 +235,9 @@ git commit -m "feat: add rich run summary rendering"
 ### Task 4: Add Structured Logging and Run Context
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/logging_utils.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_logging_utils.py`
+- Create: `src/instagram_scraper/logging_utils.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_logging_utils.py`
 
 **Step 1: Write the failing test**
 
@@ -284,8 +282,8 @@ git commit -m "feat: add structured run logging"
 ### Task 5: Add SQLAlchemy Metadata Store
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/storage_db.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_storage_db.py`
+- Create: `src/instagram_scraper/storage_db.py`
+- Test: `tests/test_storage_db.py`
 
 **Step 1: Write the failing test**
 
@@ -340,13 +338,13 @@ git commit -m "feat: add sqlite metadata store"
 ### Task 6: Introduce Provider Interfaces and Wrap Existing Profile/URL Flows
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/base.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/profile.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/url.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/scrape_instagram_profile.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/scrape_instagram_from_browser_dump.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_profile.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_url.py`
+- Create: `src/instagram_scraper/providers/base.py`
+- Create: `src/instagram_scraper/providers/profile.py`
+- Create: `src/instagram_scraper/providers/url.py`
+- Modify: `src/instagram_scraper/scrape_instagram_profile.py`
+- Modify: `src/instagram_scraper/scrape_instagram_from_browser_dump.py`
+- Test: `tests/test_providers_profile.py`
+- Test: `tests/test_providers_url.py`
 
 **Step 1: Write the failing test**
 
@@ -374,7 +372,7 @@ from dataclasses import dataclass
 @dataclass
 class ProfileScrapeProvider:
     def run(self, username: str):
-        ...
+        return build_run_summary("profile")
 ```
 
 **Step 4: Run test to verify it passes**
@@ -392,9 +390,9 @@ git commit -m "refactor: add provider layer for profile and url scraping"
 ### Task 7: Route CLI Commands Through the Unified Pipeline
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/pipeline.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_cli_commands.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Create: `src/instagram_scraper/pipeline.py`
+- Test: `tests/test_cli_commands.py`
 
 **Step 1: Write the failing test**
 
@@ -451,10 +449,10 @@ git commit -m "feat: route scrape commands through unified pipeline"
 ### Task 8: Add Support Tiers and Auth Preflight
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/capabilities.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_capabilities.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/pipeline.py`
+- Create: `src/instagram_scraper/capabilities.py`
+- Test: `tests/test_capabilities.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Modify: `src/instagram_scraper/pipeline.py`
 
 **Step 1: Write the failing test**
 
@@ -500,11 +498,11 @@ git commit -m "feat: add mode capability preflight"
 ### Task 9: Add Hashtag and Location Seed Modes
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/hashtag.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/location.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_hashtag.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_location.py`
+- Create: `src/instagram_scraper/providers/hashtag.py`
+- Create: `src/instagram_scraper/providers/location.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_providers_hashtag.py`
+- Test: `tests/test_providers_location.py`
 
 **Step 1: Write the failing test**
 
@@ -529,7 +527,16 @@ Expected: FAIL because the provider does not exist.
 ```python
 class HashtagScrapeProvider:
     def resolve_targets(self, *, hashtag: str, limit: int | None):
-        return []
+        count = 1 if limit is None else max(1, limit)
+        return [
+            build_target_record(
+                provider="http",
+                target_kind="hashtag_post",
+                target_value=f"{hashtag}:{index}",
+                mode="hashtag",
+            )
+            for index in range(count)
+        ]
 ```
 
 **Step 4: Run test to verify it passes**
@@ -547,9 +554,9 @@ git commit -m "feat: add hashtag and location modes"
 ### Task 10: Add Followers and Following Discovery
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/follow_graph.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_follow_graph.py`
+- Create: `src/instagram_scraper/providers/follow_graph.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_providers_follow_graph.py`
 
 **Step 1: Write the failing test**
 
@@ -573,7 +580,7 @@ Expected: FAIL because the follow-graph provider does not exist.
 ```python
 class FollowGraphProvider:
     def describe_mode(self, mode: str):
-        ...
+        return describe_mode(mode, support_tier="experimental", requires_auth=True)
 ```
 
 **Step 4: Run test to verify it passes**
@@ -591,11 +598,11 @@ git commit -m "feat: add follower and following discovery"
 ### Task 11: Add Likers, Commenters, and Stories
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/interactions.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/providers/stories.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_interactions.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_providers_stories.py`
+- Create: `src/instagram_scraper/providers/interactions.py`
+- Create: `src/instagram_scraper/providers/stories.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_providers_interactions.py`
+- Test: `tests/test_providers_stories.py`
 
 **Step 1: Write the failing test**
 
@@ -635,13 +642,13 @@ git commit -m "feat: add likers commenters and stories modes"
 ### Task 12: Add Filtering, Cache, and Serialization Upgrades
 
 **Files:**
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/filters.py`
-- Create: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/cache.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/_shared_io.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/pipeline.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_filters.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_cache.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_shared_io.py`
+- Create: `src/instagram_scraper/filters.py`
+- Create: `src/instagram_scraper/cache.py`
+- Modify: `src/instagram_scraper/_shared_io.py`
+- Modify: `src/instagram_scraper/pipeline.py`
+- Test: `tests/test_filters.py`
+- Test: `tests/test_cache.py`
+- Test: `tests/test_shared_io.py`
 
 **Step 1: Write the failing test**
 
@@ -685,10 +692,10 @@ git commit -m "feat: add filtering cache and serialization improvements"
 ### Task 13: Migrate HTTP Helpers Toward HTTPX
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/_instagram_http.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_instagram_http.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/download_instagram_videos.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/src/instagram_scraper/scrape_instagram_from_browser_dump.py`
+- Modify: `src/instagram_scraper/_instagram_http.py`
+- Test: `tests/test_instagram_http.py`
+- Modify: `src/instagram_scraper/download_instagram_videos.py`
+- Modify: `src/instagram_scraper/scrape_instagram_from_browser_dump.py`
 
 **Step 1: Write the failing test**
 
@@ -731,10 +738,10 @@ git commit -m "refactor: migrate instagram http layer toward httpx"
 ### Task 14: Final Verification and Documentation Update
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/README.md`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/docs/README.md`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_entrypoint.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/tests/test_cli_commands.py`
+- Modify: `README.md`
+- Modify: `docs/README.md`
+- Test: `tests/test_entrypoint.py`
+- Test: `tests/test_cli_commands.py`
 
 **Step 1: Write the failing test**
 

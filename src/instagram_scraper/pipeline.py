@@ -17,7 +17,7 @@ from instagram_scraper.capabilities import (
     describe_mode_capability,
     ensure_mode_is_runnable,
 )
-from instagram_scraper.logging_utils import build_logger
+from instagram_scraper.logging_utils import build_logger, configure_logging
 from instagram_scraper.models import (
     CommentRecord,
     PostRecord,
@@ -81,47 +81,48 @@ def execute_pipeline(mode: str, **kwargs: object) -> RunSummary:
     artifact_paths = _prepare_output_dir(output_dir, reset_output=reset_output)
     store = create_store(output_dir / "state.sqlite3")
     run_id = str(kwargs.get("run_id") or f"{mode}-{uuid4().hex[:8]}")
+    configure_logging()
     logger = build_logger(run_id=run_id, mode=mode)
-    cache = ScraperCache(output_dir / ".cache")
-    cache.set("last_mode", mode)
-    logger.info(
-        "pipeline_started",
-        support_tier=descriptor.support_tier,
-        output_dir=str(output_dir),
-    )
-    targets = _resolve_targets(mode, kwargs)
-    _write_targets(artifact_paths["targets"], targets, store)
-    summary = _run_mode(mode, {**kwargs, "output_dir": output_dir})
-    if not isinstance(summary, RunSummary):
-        message = f"Provider for mode {mode} did not return RunSummary"
-        raise TypeError(message)
-    _populate_normalized_artifacts(mode, output_dir, artifact_paths)
-    if bool(kwargs.get("raw_captures")):
-        _record_raw_captures(mode, output_dir)
-    normalized_summary = summary.model_copy(
-        update={
-            "run_id": run_id,
-            "output_dir": output_dir,
-            "targets": len(targets),
-            "support_tier": descriptor.support_tier,
-            "requires_auth": descriptor.requires_auth,
-        },
-    )
-    atomic_write_text(
-        artifact_paths["summary"],
-        normalized_summary.model_dump_json(indent=2),
-    )
-    render_run_summary(Console(), normalized_summary)
-    logger.info(
-        "pipeline_completed",
-        targets=normalized_summary.targets,
-        users=normalized_summary.users,
-        posts=normalized_summary.posts,
-        comments=normalized_summary.comments,
-        stories=normalized_summary.stories,
-        errors=normalized_summary.errors,
-    )
-    return normalized_summary
+    with ScraperCache(output_dir / ".cache") as cache:
+        cache.set("last_mode", mode)
+        logger.info(
+            "pipeline_started",
+            support_tier=descriptor.support_tier,
+            output_dir=str(output_dir),
+        )
+        targets = _resolve_targets(mode, kwargs)
+        _write_targets(artifact_paths["targets"], targets, store)
+        summary = _run_mode(mode, {**kwargs, "output_dir": output_dir})
+        if not isinstance(summary, RunSummary):
+            message = f"Provider for mode {mode} did not return RunSummary"
+            raise TypeError(message)
+        _populate_normalized_artifacts(mode, output_dir, artifact_paths)
+        if bool(kwargs.get("raw_captures")):
+            _record_raw_captures(mode, output_dir)
+        normalized_summary = summary.model_copy(
+            update={
+                "run_id": run_id,
+                "output_dir": output_dir,
+                "targets": len(targets),
+                "support_tier": descriptor.support_tier,
+                "requires_auth": descriptor.requires_auth,
+            },
+        )
+        atomic_write_text(
+            artifact_paths["summary"],
+            normalized_summary.model_dump_json(indent=2),
+        )
+        render_run_summary(Console(), normalized_summary)
+        logger.info(
+            "pipeline_completed",
+            targets=normalized_summary.targets,
+            users=normalized_summary.users,
+            posts=normalized_summary.posts,
+            comments=normalized_summary.comments,
+            stories=normalized_summary.stories,
+            errors=normalized_summary.errors,
+        )
+        return normalized_summary
 
 
 def default_output_dir(mode: str) -> Path:
@@ -141,9 +142,9 @@ def _resolve_output_dir(mode: str, kwargs: dict[str, object]) -> Path:
     if isinstance(output_dir, Path):
         return output_dir
     if mode == "profile" and isinstance(kwargs.get("username"), str):
-        return Path("data") / str(kwargs["username"])
+        return Path("data") / _safe_output_name(str(kwargs["username"]), fallback=mode)
     if mode == "url" and isinstance(kwargs.get("post_url"), str):
-        shortcode = str(kwargs["post_url"]).rstrip("/").split("/")[-1] or "url"
+        shortcode = _extract_output_leaf(str(kwargs["post_url"]), fallback="url")
         return Path("data") / shortcode
     return default_output_dir(mode)
 
@@ -162,7 +163,8 @@ def _prepare_output_dir(
         path = output_dir / artifact_name
         if reset_output and path.exists():
             path.unlink()
-        path.write_text("", encoding="utf-8")
+        if reset_output or not path.exists():
+            path.write_text("", encoding="utf-8")
         paths[artifact_name.removesuffix(".ndjson")] = path
     return paths
 
@@ -198,7 +200,7 @@ def _populate_profile_artifacts(
     payload = _load_profile_dataset(output_dir)
     if payload is None:
         return
-    _write_profile_user(payload, output_dir)
+    _write_profile_user(payload, artifact_paths["users"])
     posts = payload.get("posts")
     if not isinstance(posts, list):
         return
@@ -243,12 +245,12 @@ def _load_profile_dataset(output_dir: Path) -> dict[str, object] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _write_profile_user(payload: dict[str, object], output_dir: Path) -> None:
+def _write_profile_user(payload: dict[str, object], path: Path) -> None:
     username = payload.get("target_profile")
     if not isinstance(username, str):
         return
     write_json_line(
-        output_dir / "users.ndjson",
+        path,
         UserRecord(
             provider="instaloader",
             target_kind="profile",
@@ -358,13 +360,13 @@ def _resolve_targets(mode: str, kwargs: dict[str, object]) -> list[TargetRecord]
             limit=_optional_int(kwargs.get("limit")),
         )
     elif mode == "likers":
-        targets = LikersProvider.resolve_targets(
+        targets = LikersProvider().resolve_targets(
             username=str(kwargs["username"]),
             posts_limit=_optional_int(kwargs.get("posts_limit")),
             limit=_optional_int(kwargs.get("limit")),
         )
     elif mode == "commenters":
-        targets = CommentersProvider.resolve_targets(
+        targets = CommentersProvider().resolve_targets(
             username=str(kwargs["username"]),
             posts_limit=_optional_int(kwargs.get("posts_limit")),
             limit=_optional_int(kwargs.get("limit")),
@@ -393,6 +395,11 @@ def _run_mode(mode: str, kwargs: dict[str, object]) -> RunSummary:
             post_url=str(kwargs["post_url"]),
             output_dir=_path_arg(kwargs, "output_dir"),
             cookie_header=_optional_str(kwargs.get("cookie_header")) or "",
+            request_timeout=_optional_int(kwargs.get("request_timeout")) or 30,
+            max_retries=_optional_int(kwargs.get("max_retries")) or 5,
+            checkpoint_every=_optional_int(kwargs.get("checkpoint_every")) or 20,
+            min_delay=_optional_float(kwargs.get("min_delay")) or 0.05,
+            max_delay=_optional_float(kwargs.get("max_delay")) or 0.2,
         )
     elif mode == "urls":
         summary = UrlScrapeProvider.run_urls(
@@ -401,6 +408,11 @@ def _run_mode(mode: str, kwargs: dict[str, object]) -> RunSummary:
             cookie_header=_optional_str(kwargs.get("cookie_header")) or "",
             resume=bool(kwargs.get("resume")),
             reset_output=bool(kwargs.get("reset_output")),
+            request_timeout=_optional_int(kwargs.get("request_timeout")) or 30,
+            max_retries=_optional_int(kwargs.get("max_retries")) or 5,
+            checkpoint_every=_optional_int(kwargs.get("checkpoint_every")) or 20,
+            min_delay=_optional_float(kwargs.get("min_delay")) or 0.05,
+            max_delay=_optional_float(kwargs.get("max_delay")) or 0.2,
         )
     elif mode == "hashtag":
         summary = HashtagScrapeProvider.run(
@@ -422,14 +434,14 @@ def _run_mode(mode: str, kwargs: dict[str, object]) -> RunSummary:
             output_dir=_path_arg(kwargs, "output_dir"),
         )
     elif mode == "likers":
-        summary = LikersProvider.run(
+        summary = LikersProvider().run(
             username=str(kwargs["username"]),
             posts_limit=_optional_int(kwargs.get("posts_limit")),
             limit=_optional_int(kwargs.get("limit")),
             output_dir=_path_arg(kwargs, "output_dir"),
         )
     elif mode == "commenters":
-        summary = CommentersProvider.run(
+        summary = CommentersProvider().run(
             username=str(kwargs["username"]),
             posts_limit=_optional_int(kwargs.get("posts_limit")),
             limit=_optional_int(kwargs.get("limit")),
@@ -456,6 +468,10 @@ def _optional_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _optional_float(value: object) -> float | None:
+    return value if isinstance(value, float) else None
+
+
 def _path_arg(kwargs: dict[str, object], key: str) -> Path:
     value = kwargs.get(key)
     if isinstance(value, Path):
@@ -464,3 +480,13 @@ def _path_arg(kwargs: dict[str, object], key: str) -> Path:
         return Path(value)
     message = f"Expected path-like value for {key}"
     raise TypeError(message)
+
+
+def _extract_output_leaf(raw_value: str, *, fallback: str) -> str:
+    candidate = raw_value.rstrip("/").split("/")[-1]
+    return _safe_output_name(candidate or fallback, fallback=fallback)
+
+
+def _safe_output_name(raw_value: str, *, fallback: str) -> str:
+    sanitized = Path(raw_value).name.strip().strip(".")
+    return sanitized or fallback

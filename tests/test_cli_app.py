@@ -1,3 +1,5 @@
+import re
+
 from typer.testing import CliRunner
 
 from instagram_scraper.cli import app
@@ -27,4 +29,4 @@ def test_scrape_help_lists_all_unified_modes() -> None:
         "commenters",
         "stories",
     ):
-        assert command in result.stdout
+        assert re.search(rf"\b{re.escape(command)}\b", result.stdout)

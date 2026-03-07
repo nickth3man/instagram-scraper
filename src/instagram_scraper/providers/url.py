@@ -5,13 +5,21 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from instagram_scraper.providers.base import build_run_summary, build_target_record
 from instagram_scraper.scrape_instagram_from_browser_dump import run_url_scrape
 
 if TYPE_CHECKING:
     from instagram_scraper.models import RunSummary, TargetRecord
+
+
+class _RuntimeKwargs(TypedDict, total=False):
+    request_timeout: int
+    max_retries: int
+    checkpoint_every: int
+    min_delay: float
+    max_delay: float
 
 
 class UrlScrapeProvider:
@@ -61,10 +69,12 @@ class UrlScrapeProvider:
         """
         shortcode = post_url.rstrip("/").split("/")[-1] or "url"
         destination = output_dir or Path("data") / shortcode
+        runtime = _runtime_kwargs(_)
         result = run_url_scrape(
             urls=[post_url],
             output_dir=destination,
             cookie_header=cookie_header,
+            **runtime,
         )
         return build_run_summary(
             "url",
@@ -86,6 +96,7 @@ class UrlScrapeProvider:
         cookie_header: str = "",
         resume: bool = False,
         reset_output: bool = False,
+        **_: object,
     ) -> RunSummary:
         """Run the browser-dump flow for a list of URLs.
 
@@ -97,12 +108,14 @@ class UrlScrapeProvider:
         """
         urls = _load_urls(input_path)
         destination = output_dir or Path("data") / "urls"
+        runtime = _runtime_kwargs(_)
         result = run_url_scrape(
             urls=urls,
             output_dir=destination,
             cookie_header=cookie_header,
             resume=resume,
             reset_output=reset_output,
+            **runtime,
         )
         return build_run_summary(
             "urls",
@@ -131,13 +144,8 @@ def _load_urls(input_path: Path | None) -> list[str]:
         payload = json.loads(text)
     except json.JSONDecodeError:
         return [line.strip() for line in text.splitlines() if line.strip()]
-    if isinstance(payload, dict):
-        urls = payload.get("urls")
-        if isinstance(urls, list):
-            return [str(url) for url in urls]
-    if isinstance(payload, list):
-        return [str(url) for url in payload]
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    urls = _urls_from_payload(payload)
+    return [] if urls is None else urls
 
 
 def _summary_int(
@@ -148,3 +156,32 @@ def _summary_int(
 ) -> int:
     value = payload.get(key)
     return value if isinstance(value, int) else fallback
+
+
+def _urls_from_payload(payload: object) -> list[str] | None:
+    if isinstance(payload, dict):
+        urls = cast("dict[str, object]", payload).get("urls")
+        return [str(url) for url in urls] if isinstance(urls, list) else []
+    if isinstance(payload, list):
+        return [str(url) for url in payload]
+    return None
+
+
+def _runtime_kwargs(kwargs: dict[str, object]) -> _RuntimeKwargs:
+    runtime: _RuntimeKwargs = {}
+    request_timeout = kwargs.get("request_timeout")
+    max_retries = kwargs.get("max_retries")
+    checkpoint_every = kwargs.get("checkpoint_every")
+    min_delay = kwargs.get("min_delay")
+    max_delay = kwargs.get("max_delay")
+    if isinstance(request_timeout, int):
+        runtime["request_timeout"] = request_timeout
+    if isinstance(max_retries, int):
+        runtime["max_retries"] = max_retries
+    if isinstance(checkpoint_every, int):
+        runtime["checkpoint_every"] = checkpoint_every
+    if isinstance(min_delay, int | float):
+        runtime["min_delay"] = float(min_delay)
+    if isinstance(max_delay, int | float):
+        runtime["max_delay"] = float(max_delay)
+    return runtime

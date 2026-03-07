@@ -36,7 +36,13 @@ class HashtagScrapeProvider:
         ]
 
     @staticmethod
-    def run(*, hashtag: str, limit: int | None = None, **_: object) -> RunSummary:
+    def run(
+        *,
+        hashtag: str,
+        limit: int | None = None,
+        output_dir: Path | None = None,
+        **_: object,
+    ) -> RunSummary:
         """Return a normalized summary for a hashtag scrape.
 
         Returns
@@ -46,9 +52,8 @@ class HashtagScrapeProvider:
 
         """
         targets = HashtagScrapeProvider.resolve_targets(hashtag=hashtag, limit=limit)
-        output_dir = _.get("output_dir")
         return build_run_summary(
             "hashtag",
-            output_dir=output_dir if isinstance(output_dir, Path) else None,
+            output_dir=output_dir,
             counts={"processed": len(targets), "targets": len(targets)},
         )

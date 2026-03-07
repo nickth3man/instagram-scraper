@@ -7,120 +7,81 @@ from instagram_scraper.models import RunSummary, TargetRecord
 from instagram_scraper.providers.base import build_run_summary, build_target_record
 
 
-class LikersProvider:
+class _InteractionProvider:
+    """Shared provider implementation for interaction-discovery modes."""
+
+    def __init__(self, mode: str) -> None:
+        self._mode = mode
+
+    def resolve_targets(
+        self,
+        *,
+        username: str,
+        posts_limit: int | None,
+        limit: int | None,
+    ) -> list[TargetRecord]:
+        """Return discovered user targets for the configured interaction mode.
+
+        Returns
+        -------
+        list[TargetRecord]
+            Synthetic user targets discovered from the configured seed posts.
+
+        """
+        return _interaction_targets(
+            mode=self._mode,
+            username=username,
+            posts_limit=posts_limit,
+            limit=limit,
+        )
+
+    def run(
+        self,
+        *,
+        username: str,
+        posts_limit: int | None = None,
+        limit: int | None = None,
+        output_dir: Path | None = None,
+        **_: object,
+    ) -> RunSummary:
+        """Return a normalized summary for the configured interaction mode.
+
+        Returns
+        -------
+        RunSummary
+            A normalized summary describing the interaction-discovery run.
+
+        """
+        targets = self.resolve_targets(
+            username=username,
+            posts_limit=posts_limit,
+            limit=limit,
+        )
+        return build_run_summary(
+            self._mode,
+            output_dir=output_dir,
+            counts={
+                "processed": len(targets),
+                "targets": len(targets),
+                "users": len(targets),
+            },
+        )
+
+
+class LikersProvider(_InteractionProvider):
     """Unified provider for liker discovery."""
 
-    @staticmethod
-    def resolve_targets(
-        *,
-        username: str,
-        posts_limit: int | None,
-        limit: int | None,
-    ) -> list[TargetRecord]:
-        """Return discovered user targets for liker discovery.
-
-        Returns
-        -------
-        list[TargetRecord]
-            Synthetic user targets discovered from liked seed posts.
-
-        """
-        return _interaction_targets(
-            mode="likers",
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-        )
-
-    @staticmethod
-    def run(
-        *,
-        username: str,
-        posts_limit: int | None = None,
-        limit: int | None = None,
-        output_dir: Path | None = None,
-        **_: object,
-    ) -> RunSummary:
-        """Return a normalized summary for a liker scrape.
-
-        Returns
-        -------
-        RunSummary
-            A normalized summary for liker discovery.
-
-        """
-        targets = LikersProvider.resolve_targets(
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-        )
-        return build_run_summary(
-            "likers",
-            output_dir=output_dir,
-            counts={
-                "processed": len(targets),
-                "targets": len(targets),
-                "users": len(targets),
-            },
-        )
+    def __init__(self) -> None:
+        """Initialize the liker-discovery provider."""
+        super().__init__("likers")
 
 
-class CommentersProvider:
+class CommentersProvider(_InteractionProvider):
     """Unified provider for commenter discovery."""
 
-    @staticmethod
-    def resolve_targets(
-        *,
-        username: str,
-        posts_limit: int | None,
-        limit: int | None,
-    ) -> list[TargetRecord]:
-        """Return discovered user targets for commenter discovery.
-
-        Returns
-        -------
-        list[TargetRecord]
-            Synthetic user targets discovered from commented seed posts.
-
-        """
-        return _interaction_targets(
-            mode="commenters",
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-        )
-
-    @staticmethod
-    def run(
-        *,
-        username: str,
-        posts_limit: int | None = None,
-        limit: int | None = None,
-        output_dir: Path | None = None,
-        **_: object,
-    ) -> RunSummary:
-        """Return a normalized summary for a commenter scrape.
-
-        Returns
-        -------
-        RunSummary
-            A normalized summary for commenter discovery.
-
-        """
-        targets = CommentersProvider.resolve_targets(
-            username=username,
-            posts_limit=posts_limit,
-            limit=limit,
-        )
-        return build_run_summary(
-            "commenters",
-            output_dir=output_dir,
-            counts={
-                "processed": len(targets),
-                "targets": len(targets),
-                "users": len(targets),
-            },
-        )
+    def __init__(self) -> None:
+        """Initialize the commenter-discovery provider."""
+        super().__init__("commenters")
 
 
 def _interaction_targets(

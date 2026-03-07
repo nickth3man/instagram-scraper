@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from instagram_scraper.providers.url import UrlScrapeProvider
 
 
@@ -14,6 +16,7 @@ def test_url_provider_delegates_to_browser_dump_runner(
         urls: list[str],
         output_dir: Path,
         cookie_header: str,
+        **_: object,
     ) -> dict[str, object]:
         called["urls"] = urls
         called["output_dir"] = output_dir
@@ -30,3 +33,39 @@ def test_url_provider_delegates_to_browser_dump_runner(
     assert summary.mode == "url"
     assert summary.posts == 1
     assert called["urls"] == ["https://www.instagram.com/p/example/"]
+
+
+def test_url_provider_returns_no_urls_for_invalid_json_object(tmp_path: Path) -> None:
+    input_path = tmp_path / "urls.json"
+    input_path.write_text('{"unexpected": "value"}', encoding="utf-8")
+    assert UrlScrapeProvider.resolve_targets(input_path=input_path) == []
+
+
+def test_url_provider_forwards_runtime_controls(monkeypatch, tmp_path: Path) -> None:
+    called: dict[str, object] = {}
+
+    def fake_run_urls(**kwargs: object) -> dict[str, object]:
+        called.update(kwargs)
+        return {"posts": 1, "comments": 2, "errors": 0, "processed": 1}
+
+    input_path = tmp_path / "urls.txt"
+    input_path.write_text("https://www.instagram.com/p/example/\n", encoding="utf-8")
+    monkeypatch.setattr("instagram_scraper.providers.url.run_url_scrape", fake_run_urls)
+    summary = UrlScrapeProvider.run_urls(
+        input_path=input_path,
+        output_dir=tmp_path,
+        cookie_header="sessionid=abc",
+        resume=True,
+        reset_output=True,
+        request_timeout=15,
+        max_retries=2,
+        checkpoint_every=7,
+        min_delay=0.1,
+        max_delay=0.4,
+    )
+    assert summary.mode == "urls"
+    assert called["request_timeout"] == 15
+    assert called["max_retries"] == 2
+    assert called["checkpoint_every"] == 7
+    assert called["min_delay"] == pytest.approx(0.1)
+    assert called["max_delay"] == pytest.approx(0.4)

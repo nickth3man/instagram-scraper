@@ -45,13 +45,14 @@ class ProfileScrapeProvider:
             A normalized summary rooted under the requested username directory.
 
         """
+        destination = output_dir or Path("data") / username
         result = run_profile_scrape(
             username=username,
-            output_dir=output_dir or Path("data") / username,
+            output_dir=destination,
         )
         return build_run_summary(
             "profile",
-            output_dir=output_dir or Path("data") / username,
+            output_dir=destination,
             counts={
                 "processed": 1,
                 "posts": _summary_int(result, "posts"),

@@ -1,7 +1,5 @@
 # Unified Instagram Scraper Contract Gap Closure Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** Close the remaining contract-level gaps between the approved unified-scraper design and the current scaffold by expanding the shared config and CLI surface, enriching normalized artifact ownership, and adapting legacy outputs into the unified artifact family.
 
 **Architecture:** Keep the current provider-driven CLI and pipeline. Extend the typed config and command surface only where runtime semantics already exist, then make the pipeline own more of the normalized artifact contract by writing profile-derived normalized records and optional raw-capture metadata. Preserve the legacy scrapers as execution backends rather than rewriting them.
@@ -13,10 +11,10 @@
 ### Task 1: Expand Shared Config and CLI Surface
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/config.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_config.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_cli_commands.py`
+- Modify: `src/instagram_scraper/config.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_config.py`
+- Test: `tests/test_cli_commands.py`
 
 **Step 1: Write the failing test**
 
@@ -114,9 +112,9 @@ git commit -m "feat: add shared unified runtime controls"
 ### Task 2: Normalize Legacy Profile Outputs Into Unified Artifacts
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/pipeline.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/providers/profile.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_pipeline.py`
+- Modify: `src/instagram_scraper/pipeline.py`
+- Modify: `src/instagram_scraper/providers/profile.py`
+- Test: `tests/test_pipeline.py`
 
 **Step 1: Write the failing test**
 
@@ -209,10 +207,10 @@ git commit -m "feat: normalize legacy profile artifacts"
 ### Task 3: Add Optional Raw-Capture Manifest Support
 
 **Files:**
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/pipeline.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/models.py`
-- Modify: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/src/instagram_scraper/cli.py`
-- Test: `C:/Users/nicolas/Documents/GitHub/instagram/instagram-scraper/.worktrees/codex/unified-instagram-scraper/tests/test_pipeline.py`
+- Modify: `src/instagram_scraper/pipeline.py`
+- Modify: `src/instagram_scraper/models.py`
+- Modify: `src/instagram_scraper/cli.py`
+- Test: `tests/test_pipeline.py`
 
 **Step 1: Write the failing test**
 

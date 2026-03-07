@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, create_engine, select
+from sqlalchemy import String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ class MetadataStore:
 
         """
         with Session(self.engine) as session:
-            return len(session.scalars(select(TargetState)).all())
+            return session.scalar(select(func.count()).select_from(TargetState)) or 0
 
 
 def create_store(path: Path) -> MetadataStore:

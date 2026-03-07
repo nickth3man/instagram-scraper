@@ -40,6 +40,7 @@ class LocationScrapeProvider:
         *,
         location: str,
         limit: int | None = None,
+        output_dir: Path | None = None,
         **_: object,
     ) -> RunSummary:
         """Return a normalized summary for a location scrape.
@@ -54,9 +55,8 @@ class LocationScrapeProvider:
             location=location,
             limit=limit,
         )
-        output_dir = _.get("output_dir")
         return build_run_summary(
             "location",
-            output_dir=output_dir if isinstance(output_dir, Path) else None,
+            output_dir=output_dir,
             counts={"processed": len(targets), "targets": len(targets)},
         )

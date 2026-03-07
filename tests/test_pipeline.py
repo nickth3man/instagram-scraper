@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from instagram_scraper.pipeline import execute_pipeline
+from instagram_scraper.providers.base import build_run_summary
 from instagram_scraper.storage_db import create_store
 
 
@@ -127,3 +128,31 @@ def test_profile_pipeline_records_raw_capture_manifest_when_enabled(
         encoding="utf-8",
     ).splitlines()
     assert len(lines) == 1
+
+
+def test_urls_pipeline_preserves_existing_artifacts_when_resuming(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "urls.txt"
+    input_path.write_text("https://www.instagram.com/p/example/\n", encoding="utf-8")
+    output_dir = tmp_path / "urls"
+    output_dir.mkdir()
+    existing_post = output_dir / "posts.ndjson"
+    existing_post.write_text('{"shortcode": "existing"}\n', encoding="utf-8")
+
+    def fake_run_urls(**kwargs: object):
+        return build_run_summary("urls", output_dir=Path(kwargs["output_dir"]))
+
+    monkeypatch.setattr(
+        "instagram_scraper.pipeline.UrlScrapeProvider.run_urls",
+        fake_run_urls,
+    )
+    execute_pipeline(
+        "urls",
+        input_path=input_path,
+        output_dir=output_dir,
+        resume=True,
+        cookie_header="sessionid=abc",
+    )
+    assert existing_post.read_text(encoding="utf-8") == '{"shortcode": "existing"}\n'

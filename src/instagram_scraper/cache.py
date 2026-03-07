@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from diskcache import Cache
 
@@ -32,3 +32,22 @@ class ScraperCache:
     def set(self, key: str, value: object) -> None:
         """Store a value in the cache."""
         self._cache.set(key, value)
+
+    def close(self) -> None:
+        """Close the underlying disk cache resources."""
+        self._cache.close()
+
+    def __enter__(self) -> Self:
+        """Return the cache wrapper for context-manager use.
+
+        Returns
+        -------
+        Self
+            The open cache wrapper.
+
+        """
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Close the cache when leaving a context manager block."""
+        self.close()
