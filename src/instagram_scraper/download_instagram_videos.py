@@ -21,8 +21,8 @@ import requests
 from ._instagram_http import (
     RetryConfig,
     build_instagram_session,
-    json_error,
-    json_payload,
+    format_json_error,
+    get_json_payload,
     randomized_delay,
     request_with_retry,
 )
@@ -32,8 +32,7 @@ from ._shared_io import (
     ensure_csv_with_header,
     load_json_dict,
 )
-from .logging_config import configure_logging, LogContext, get_logger
-from .error_codes import ErrorCode
+from .logging_config import LogContext, configure_logging, get_logger
 
 logger = get_logger(__name__)
 
@@ -111,8 +110,8 @@ class Config:
     output_dir: Path
     posts_csv: Path
     comments_csv: Path
-    resume: bool
-    reset_output: bool
+    should_resume: bool
+    should_reset_output: bool
     min_delay: float
     max_delay: float
     max_retries: int
@@ -155,8 +154,8 @@ def parse_args() -> Config:
         output_dir=Path(args.output_dir),
         posts_csv=Path(args.posts_csv),
         comments_csv=Path(args.comments_csv),
-        resume=args.resume,
-        reset_output=args.reset_output,
+        should_resume=args.resume,
+        should_reset_output=args.reset_output,
         min_delay=max(MIN_DELAY_MINIMUM, args.min_delay),
         max_delay=max(args.min_delay, args.max_delay),
         max_retries=max(MIN_RETRIES, args.max_retries),
@@ -248,16 +247,14 @@ def run(cfg: Config) -> dict[str, object]:
 
     """
     # Initialize structured logging for the run
-    global logger
-    logger = get_logger("instagram_scraper.download_videos")
     configure_logging(level="INFO")
     logger.info(
         "download_run_started",
         extra={
             "output_dir": str(cfg.output_dir),
             "posts_csv": str(cfg.posts_csv),
-            "resume": cfg.resume,
-            "reset_output": cfg.reset_output,
+            "should_resume": cfg.should_resume,
+            "should_reset_output": cfg.should_reset_output,
             "limit": cfg.limit,
             "max_concurrent_downloads": cfg.max_concurrent_downloads,
         },
@@ -272,8 +269,8 @@ def run(cfg: Config) -> dict[str, object]:
         extra={
             "output_dir": str(cfg.output_dir),
             "posts_csv": str(cfg.posts_csv),
-            "resume": cfg.resume,
-            "reset_output": cfg.reset_output,
+            "should_resume": cfg.should_resume,
+            "should_reset_output": cfg.should_reset_output,
             "limit": cfg.limit,
             "max_concurrent_downloads": cfg.max_concurrent_downloads,
         },
@@ -282,7 +279,7 @@ def run(cfg: Config) -> dict[str, object]:
     # Group comments by shortcode once so each post can grab its own comments quickly.
     comments_by_shortcode = _load_comments_by_shortcode(cfg.comments_csv)
     rows = _target_rows(cfg.posts_csv, cfg.limit)
-    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
+    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
     metrics = _initial_metrics(checkpoint)
     completed = set(metrics["completed_shortcodes"])
     session = _build_session(cfg.cookie_header)
@@ -486,7 +483,7 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
     videos_root.mkdir(parents=True, exist_ok=True)
     index_csv = cfg.output_dir / "videos_index.csv"
     errors_csv = cfg.output_dir / "videos_errors.csv"
-    if cfg.reset_output:
+    if cfg.should_reset_output:
         # Reset mode removes old bookkeeping files and keeps the directory layout
         # simple for the next run.
         for path in (
@@ -507,8 +504,8 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
         "file_size_bytes",
     ]
     error_header = ["shortcode", "media_id", "post_url", "stage", "error"]
-    _ensure_csv(index_csv, index_header, reset_output=cfg.reset_output)
-    _ensure_csv(errors_csv, error_header, reset_output=cfg.reset_output)
+    _ensure_csv(index_csv, index_header, reset_output=cfg.should_reset_output)
+    _ensure_csv(errors_csv, error_header, reset_output=cfg.should_reset_output)
     return {
         "videos_root": videos_root,
         "index_csv": index_csv,
@@ -558,7 +555,8 @@ def _initial_metrics(checkpoint: _CheckpointState | None) -> _DownloadMetrics:
 def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
     post = _post_target_from_row(row)
     with LogContext(shortcode=post.shortcode, media_id=post.media_id):
-        # Periodic checkpoint-progress logging: announce progress every checkpoint interval
+        # Periodic checkpoint-progress logging:
+        # announce progress every checkpoint interval
         if (
             context.metrics["processed"] > 0
             and context.metrics["processed"] % context.cfg.checkpoint_every == 0
@@ -570,8 +568,8 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
                     "completed_shortcodes": len(context.completed),
                 },
             )
-        if context.cfg.resume and post.shortcode in context.completed:
-            # Resume mode skips posts that were already marked complete in the checkpoint.
+        if context.cfg.should_resume and post.shortcode in context.completed:
+            # Resume mode skips posts already marked complete in checkpoint.
             return
         if not _validate_post_target(context, post):
             return
@@ -914,11 +912,11 @@ def _build_summary(
 
 
 def _json_payload(response: requests.Response) -> dict[str, object] | None:
-    return json_payload(response)
+    return get_json_payload(response)
 
 
 def _json_error(response: requests.Response, prefix: str) -> str:
-    return json_error(response, prefix)
+    return format_json_error(response, prefix)
 
 
 def _increment_metric(

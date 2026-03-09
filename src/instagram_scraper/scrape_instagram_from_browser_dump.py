@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 from ._instagram_http import (
     RetryConfig,
     build_instagram_session,
-    json_error,
-    json_payload,
+    format_json_error,
+    get_json_payload,
     randomized_delay,
     request_with_retry,
 )
@@ -114,8 +114,8 @@ class Config:
 
     tool_dump_path: Path
     output_dir: Path
-    resume: bool
-    reset_output: bool
+    should_resume: bool
+    should_reset_output: bool
     start_index: int
     limit: int | None
     checkpoint_every: int
@@ -156,8 +156,8 @@ def parse_args() -> Config:
     return Config(
         tool_dump_path=Path(args.tool_dump_path),
         output_dir=Path(args.output_dir),
-        resume=args.resume,
-        reset_output=args.reset_output,
+        should_resume=args.resume,
+        should_reset_output=args.reset_output,
         start_index=max(0, args.start_index),
         limit=args.limit,
         checkpoint_every=max(1, args.checkpoint_every),
@@ -191,7 +191,7 @@ def fetch_media_id(
     # Try the clean API route first because it gives us structured JSON.
     response, error = _request_with_retry(session, shortcode_info_url, cfg)
     if response is not None:
-        payload = json_payload(response)
+        payload = get_json_payload(response)
         if payload is not None:
             items = payload.get("items")
             if isinstance(items, list) and items:
@@ -246,21 +246,21 @@ def run(cfg: Config) -> dict[str, object]:
     ensure_csv_with_header(
         output_paths["posts_csv"],
         post_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
     ensure_csv_with_header(
         output_paths["comments_csv"],
         comment_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
     ensure_csv_with_header(
         output_paths["errors_csv"],
         error_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
 
     # Resuming means "start from the saved checkpoint if there is one".
-    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
+    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
     metrics = _initial_metrics(cfg, urls, checkpoint)
     session = _build_session(cfg.cookie_header)
     context = _RunContext(
@@ -408,9 +408,9 @@ def _fetch_media_info(
     response, error = _request_with_retry(session, url, cfg)
     if response is None:
         return None, error or "media_info_request_failed"
-    payload = json_payload(response)
+    payload = get_json_payload(response)
     if payload is None:
-        return None, json_error(response, "media_info")
+        return None, format_json_error(response, "media_info")
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         return None, "media_info_empty"
@@ -443,9 +443,9 @@ def _fetch_comments(
         )
         if response is None:
             return comments, error or "comments_request_failed"
-        payload = json_payload(response)
+        payload = get_json_payload(response)
         if payload is None:
-            return comments, json_error(response, "comments")
+            return comments, format_json_error(response, "comments")
         page_comments = payload.get("comments")
         if isinstance(page_comments, list):
             comments.extend(_comment_rows(cast("list[object]", page_comments)))
@@ -501,7 +501,7 @@ def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
 
 def _prepare_output(cfg: Config) -> _OutputPaths:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    if cfg.reset_output:
+    if cfg.should_reset_output:
         # Reset mode throws away old artifacts so the next run starts cleanly.
         for name in (
             "posts.ndjson",
@@ -536,9 +536,7 @@ def _initial_metrics(
         # On resume, never go backwards earlier than the saved next index.
         start_index = max(start_index, checkpoint["next_index"])
     end_index = (
-        len(urls)
-        if cfg.limit is None
-        else min(len(urls), start_index + cfg.limit)
+        len(urls) if cfg.limit is None else min(len(urls), start_index + cfg.limit)
     )
     started_at = checkpoint["started_at_utc"] if checkpoint else _iso_utc_now()
     return {

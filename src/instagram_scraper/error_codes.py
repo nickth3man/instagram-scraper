@@ -35,14 +35,14 @@ class ErrorCode(StrEnum):
     HTTP_502 = "http_502"
     HTTP_503 = "http_503"
     HTTP_504 = "http_504"
-    HTTP_OTHER = "http_other"
+    HTTP_UNKNOWN = "http_unknown"
 
     # Network Errors
     NETWORK_TIMEOUT = "network_timeout"
     NETWORK_CONNECTION = "network_connection"
     NETWORK_DNS = "network_dns"
     NETWORK_SSL = "network_ssl"
-    NETWORK_OTHER = "network_other"
+    NETWORK_UNKNOWN = "network_unknown"
 
     # API Errors
     MEDIA_NOT_FOUND = "media_not_found"
@@ -102,7 +102,7 @@ def error_code_from_status(status_code: int) -> ErrorCode:
         The corresponding error code.
 
     """
-    return _STATUS_TO_ERROR.get(status_code, ErrorCode.HTTP_OTHER)
+    return _STATUS_TO_ERROR.get(status_code, ErrorCode.HTTP_UNKNOWN)
 
 
 # Mapping of exception types to ErrorCode

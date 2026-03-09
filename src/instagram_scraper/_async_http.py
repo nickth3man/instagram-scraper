@@ -29,8 +29,8 @@ __all__ = [
     "async_json_payload",
     "async_request_with_retry",
     "build_async_instagram_session",
-    "cookie_value",
-    "randomized_sleep",
+    "get_cookie_value",
+    "randomized_delay",
 ]
 
 
@@ -63,13 +63,13 @@ DEFAULT_USER_AGENT = os.getenv(
 )
 SUCCESS_STATUS = 200
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-RANDOM = SystemRandom()
+SYSTEM_RANDOM = SystemRandom()
 DEFAULT_POOL_LIMIT = 10
 DEFAULT_POOL_LIMIT_PER_HOST = 10
 DEFAULT_MAX_RETRIES = 3
 
 
-def cookie_value(cookie_header: str, key: str) -> str | None:
+def get_cookie_value(cookie_header: str, key: str) -> str | None:
     """Read a cookie value from a raw Cookie header string.
 
     Returns
@@ -125,7 +125,7 @@ def build_async_instagram_session(
     if asbd_id:
         headers["X-ASBD-ID"] = asbd_id
 
-    csrftoken = cookie_value(cookie_header, "csrftoken")
+    csrftoken = get_cookie_value(cookie_header, "csrftoken")
     if csrftoken:
         headers["X-CSRFToken"] = csrftoken
 
@@ -136,14 +136,14 @@ def build_async_instagram_session(
     )
 
 
-async def randomized_sleep(
+async def randomized_delay(
     min_delay: float,
     max_delay: float,
     *,
     scale: float = 1.0,
 ) -> None:
     """Sleep for a randomized delay within the configured bounds."""
-    await asyncio.sleep(RANDOM.uniform(min_delay * scale, max_delay * scale))
+    await asyncio.sleep(SYSTEM_RANDOM.uniform(min_delay * scale, max_delay * scale))
 
 
 async def async_request_with_retry(
@@ -194,14 +194,14 @@ async def _try_request(
         )
         return await _handle_response(response, retry, attempt)
     except TimeoutError:
-        await randomized_sleep(
+        await randomized_delay(
             retry.min_delay,
             retry.max_delay,
             scale=retry.base_retry_seconds * (2 ** (attempt - 1)),
         )
         return None, ErrorCode.NETWORK_TIMEOUT
     except aiohttp.ClientError:
-        await randomized_sleep(
+        await randomized_delay(
             retry.min_delay,
             retry.max_delay,
             scale=retry.base_retry_seconds * (2 ** (attempt - 1)),
@@ -229,7 +229,7 @@ async def _handle_response(
         wait_seconds = _calculate_retry_wait(response, retry, attempt)
         error = error_code_from_status(response.status)
         await response.release()
-        await randomized_sleep(
+        await randomized_delay(
             retry.min_delay,
             retry.max_delay,
             scale=wait_seconds,

@@ -12,7 +12,7 @@ import sys
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Self, cast
+from typing import Any, Self, TextIO, cast
 
 # Context variables for request-scoped logging
 _context_vars: dict[str, ContextVar[str | None]] = {}
@@ -100,7 +100,7 @@ def configure_logging(
     level: str = "INFO",
     *,
     json_format: bool = True,
-    stream: Any = None,
+    stream: TextIO | None = None,
 ) -> logging.Logger:
     """Configure root logger with structured output.
 
@@ -165,15 +165,15 @@ class LogContext:
 
     Uses ContextVar for thread-safe, async-safe context propagation.
 
-    Attributes
-    ----------
-    **fields : str
-        Key-value pairs to add to log context.
-
     Examples
     --------
     >>> with LogContext(request_id="abc123"):
     ...     logger.info("processing")  # includes request_id
+
+    Attributes
+    ----------
+    **fields : str
+        Key-value pairs to add to log context.
 
     """
 

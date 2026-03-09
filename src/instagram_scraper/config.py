@@ -84,7 +84,7 @@ class OutputConfig:
     ----------
     output_dir : Path
         Directory for output files.
-    reset_output : bool
+    should_reset_output : bool
         Clear existing output on start.
     checkpoint_every : int
         Save checkpoint every N items.
@@ -92,7 +92,7 @@ class OutputConfig:
     """
 
     output_dir: Path = field(default_factory=lambda: Path("data"))
-    reset_output: bool = False
+    should_reset_output: bool = False
     checkpoint_every: int = 20
 
 
@@ -108,7 +108,7 @@ class ScraperConfig:
         HTTP client configuration.
     output : OutputConfig
         Output file configuration.
-    resume : bool
+    should_resume : bool
         Resume from checkpoint if available.
     limit : int | None
         Maximum items to process.
@@ -117,7 +117,7 @@ class ScraperConfig:
 
     http: HttpConfig = field(default_factory=HttpConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
-    resume: bool = False
+    should_resume: bool = False
     limit: int | None = None
 
 

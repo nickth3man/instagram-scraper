@@ -7,13 +7,13 @@ import os
 import re
 import time
 from random import SystemRandom
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .config import RetryConfig
+from .config import RetryConfig  # noqa: TC001
 from .error_codes import RETRYABLE_STATUS_CODES, ErrorCode, error_code_from_status
 
 DEFAULT_USER_AGENT = os.getenv(
@@ -26,7 +26,7 @@ DEFAULT_USER_AGENT = os.getenv(
 )
 SUCCESS_STATUS = 200
 RETRYABLE_STATUSES = RETRYABLE_STATUS_CODES
-RANDOM = SystemRandom()
+SYSTEM_RANDOM = SystemRandom()
 DEFAULT_POOL_CONNECTIONS = 10
 DEFAULT_POOL_MAXSIZE = 10
 DEFAULT_MAX_RETRIES = 3
@@ -76,14 +76,14 @@ def build_instagram_session(
         headers["X-IG-App-ID"] = app_id
     if asbd_id:
         headers["X-ASBD-ID"] = asbd_id
-    csrftoken = cookie_value(cookie_header, "csrftoken")
+    csrftoken = get_cookie_value(cookie_header, "csrftoken")
     session.headers.update(headers)
     if csrftoken:
         session.headers["X-CSRFToken"] = csrftoken
     return session
 
 
-def cookie_value(cookie_header: str, key: str) -> str | None:
+def get_cookie_value(cookie_header: str, key: str) -> str | None:
     """Read a cookie value from a raw Cookie header string.
 
     Returns
@@ -103,7 +103,7 @@ def randomized_delay(
     scale: float = 1.0,
 ) -> None:
     """Sleep for a randomized delay within the configured bounds."""
-    time.sleep(RANDOM.uniform(min_delay * scale, max_delay * scale))
+    time.sleep(SYSTEM_RANDOM.uniform(min_delay * scale, max_delay * scale))
 
 
 def request_with_retry(
@@ -132,7 +132,7 @@ def request_with_retry(
                 stream=stream,
             )
         except requests.RequestException:
-            last_error = ErrorCode.NETWORK_OTHER
+            last_error = ErrorCode.NETWORK_UNKNOWN
             randomized_delay(
                 retry.min_delay,
                 retry.max_delay,
@@ -159,7 +159,7 @@ def request_with_retry(
     return None, last_error or ErrorCode.REQUEST_FAILED
 
 
-def json_payload(response: requests.Response) -> dict[str, object] | None:
+def get_json_payload(response: requests.Response) -> dict[str, object] | None:
     """Decode a JSON object response body.
 
     Returns
@@ -197,7 +197,7 @@ def _sanitize_preview(text: str, max_length: int = 120) -> str:
     return sanitized[:max_length].replace("\n", " ")
 
 
-def json_error(response: requests.Response, prefix: str) -> str:
+def format_json_error(response: requests.Response, prefix: str) -> str:
     """Summarize why a response body could not be treated as expected JSON.
 
     Returns

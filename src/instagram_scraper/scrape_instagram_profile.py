@@ -97,7 +97,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _output_dir(username: str) -> Path:
+def _get_output_dir(username: str) -> Path:
     # Keep all files for one Instagram account inside the same folder.
     data_dir = Path(os.getenv("INSTAGRAM_DATA_DIR", DEFAULT_DATA_DIR_FALLBACK))
     return data_dir / username
@@ -342,7 +342,7 @@ def main() -> None:
     target_username = args.username
 
     started_at = datetime.now(UTC)
-    output_dir = _output_dir(target_username)
+    output_dir = _get_output_dir(target_username)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     loader = _create_instaloader()

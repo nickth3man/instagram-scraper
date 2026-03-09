@@ -60,7 +60,13 @@ def test_build_async_instagram_session(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_request_with_retry_success() -> None:
+async def test_async_request_with_retry_success(monkeypatch) -> None:
+    fake = types.ModuleType("aiohttp")
+    fake.ClientTimeout = MagicMock()
+    fake.ClientError = Exception
+    monkeypatch.setattr(async_http, "aiohttp", fake)
+    monkeypatch.setattr(async_http, "AIOHTTP_AVAILABLE", True)
+
     mock_response = _DummyResponse(200, payload={"ok": True})
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_response)
@@ -85,7 +91,13 @@ async def test_async_request_with_retry_success() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_request_with_retry_retryable_failure() -> None:
+async def test_async_request_with_retry_retryable_failure(monkeypatch) -> None:
+    fake = types.ModuleType("aiohttp")
+    fake.ClientTimeout = MagicMock()
+    fake.ClientError = Exception
+    monkeypatch.setattr(async_http, "aiohttp", fake)
+    monkeypatch.setattr(async_http, "AIOHTTP_AVAILABLE", True)
+
     mock_response_fail = _DummyResponse(500)
     mock_response_success = _DummyResponse(200, payload={"ok": True})
 
@@ -106,7 +118,7 @@ async def test_async_request_with_retry_retryable_failure() -> None:
         base_retry_seconds=0.01,
     )
 
-    with patch("instagram_scraper._async_http.randomized_sleep", AsyncMock()):
+    with patch("instagram_scraper._async_http.randomized_delay", AsyncMock()):
         response, error = await async_http.async_request_with_retry(
             mock_session,
             "https://example.com",
@@ -119,7 +131,13 @@ async def test_async_request_with_retry_retryable_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_async_request_with_retry_exhausted() -> None:
+async def test_async_request_with_retry_exhausted(monkeypatch) -> None:
+    fake = types.ModuleType("aiohttp")
+    fake.ClientTimeout = MagicMock()
+    fake.ClientError = Exception
+    monkeypatch.setattr(async_http, "aiohttp", fake)
+    monkeypatch.setattr(async_http, "AIOHTTP_AVAILABLE", True)
+
     mock_response_fail = _DummyResponse(429)
     mock_session = MagicMock()
     mock_session.get = AsyncMock(return_value=mock_response_fail)
@@ -132,7 +150,7 @@ async def test_async_request_with_retry_exhausted() -> None:
         base_retry_seconds=0.01,
     )
 
-    with patch("instagram_scraper._async_http.randomized_sleep", AsyncMock()):
+    with patch("instagram_scraper._async_http.randomized_delay", AsyncMock()):
         response, error = await async_http.async_request_with_retry(
             mock_session,
             "https://example.com",

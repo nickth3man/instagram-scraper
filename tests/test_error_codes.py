@@ -1,12 +1,11 @@
-import os
 import pathlib
 import sys
 
 ROOT = pathlib.Path(pathlib.Path(__file__).parent).parent
-SRC = os.path.join(ROOT, "src")
-sys.path.insert(0, SRC)
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
 
-from instagram_scraper.error_codes import (
+from instagram_scraper.error_codes import (  # noqa: E402
     ErrorCode,
     error_code_from_exception,
     error_code_from_status,
@@ -24,12 +23,12 @@ def test_error_code_values() -> None:
         "HTTP_502": "http_502",
         "HTTP_503": "http_503",
         "HTTP_504": "http_504",
-        "HTTP_OTHER": "http_other",
+        "HTTP_UNKNOWN": "http_unknown",
         "NETWORK_TIMEOUT": "network_timeout",
         "NETWORK_CONNECTION": "network_connection",
         "NETWORK_DNS": "network_dns",
         "NETWORK_SSL": "network_ssl",
-        "NETWORK_OTHER": "network_other",
+        "NETWORK_UNKNOWN": "network_unknown",
         "MEDIA_NOT_FOUND": "media_not_found",
         "MEDIA_INFO_EMPTY": "media_info_empty",
         "MEDIA_INFO_INVALID": "media_info_invalid",
@@ -57,7 +56,7 @@ def test_error_code_from_status() -> None:
     assert error_code_from_status(502) == ErrorCode.HTTP_502
     assert error_code_from_status(503) == ErrorCode.HTTP_503
     assert error_code_from_status(504) == ErrorCode.HTTP_504
-    assert error_code_from_status(999) == ErrorCode.HTTP_OTHER
+    assert error_code_from_status(999) == ErrorCode.HTTP_UNKNOWN
 
 
 def test_error_code_from_exception() -> None:
