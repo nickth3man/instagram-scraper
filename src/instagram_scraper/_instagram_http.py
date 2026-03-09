@@ -6,12 +6,16 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass
 from random import SystemRandom
 from typing import cast
 
 import httpx
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from .config import RetryConfig  # noqa: TC001
+from .error_codes import RETRYABLE_STATUS_CODES, ErrorCode, error_code_from_status
 
 DEFAULT_USER_AGENT = os.getenv(
     "INSTAGRAM_USER_AGENT",
@@ -22,54 +26,20 @@ DEFAULT_USER_AGENT = os.getenv(
     ),
 )
 SUCCESS_STATUS = 200
-RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-RANDOM = SystemRandom()
+RETRYABLE_STATUSES = RETRYABLE_STATUS_CODES
+SYSTEM_RANDOM = SystemRandom()
+DEFAULT_POOL_CONNECTIONS = 10
+DEFAULT_POOL_MAXSIZE = 10
+DEFAULT_MAX_RETRIES = 3
 
 
-@dataclass(frozen=True)
-class RetryConfig:
-    """HTTP retry settings shared across Instagram API callers."""
-
-    timeout: int
-    max_retries: int
-    min_delay: float
-    max_delay: float
-    base_retry_seconds: float
-
-
-def build_instagram_client(cookie_header: str) -> httpx.Client:
-    """Create an HTTPX client with the headers Instagram endpoints expect.
-
-    Returns
-    -------
-    httpx.Client
-        A configured HTTPX client ready for Instagram requests.
-
-    """
-    return httpx.Client(headers=_instagram_headers(cookie_header))
-
-
-def _instagram_headers(cookie_header: str) -> dict[str, str]:
-    headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-        "Referer": "https://www.instagram.com/",
-        "Cookie": cookie_header,
-    }
-    csrftoken = cookie_value(cookie_header, "csrftoken")
-    if csrftoken:
-        headers["X-CSRFToken"] = csrftoken
-    app_id = os.getenv("INSTAGRAM_APP_ID")
-    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
-    if app_id:
-        headers["X-IG-App-ID"] = app_id
-    if asbd_id:
-        headers["X-ASBD-ID"] = asbd_id
-    return headers
-
-
-def build_instagram_session(cookie_header: str) -> requests.Session:
+def build_instagram_session(
+    cookie_header: str,
+    *,
+    pool_connections: int = DEFAULT_POOL_CONNECTIONS,
+    pool_maxsize: int = DEFAULT_POOL_MAXSIZE,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> requests.Session:
     """Create a session with the headers Instagram endpoints expect.
 
     Returns
@@ -79,14 +49,42 @@ def build_instagram_session(cookie_header: str) -> requests.Session:
 
     """
     session = requests.Session()
-    # These headers make our requests look like a normal browser session instead
-    # of a completely generic script.
-    headers = _instagram_headers(cookie_header)
+
+    retry_strategy = Retry(
+        total=max_retries,
+        backoff_factor=1,
+        status_forcelist=list(RETRYABLE_STATUSES),
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=pool_connections,
+        pool_maxsize=pool_maxsize,
+    )
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    headers = {
+        "User-Agent": DEFAULT_USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.instagram.com/",
+        "Cookie": cookie_header,
+    }
+    app_id = os.getenv("INSTAGRAM_APP_ID")
+    asbd_id = os.getenv("INSTAGRAM_ASBD_ID")
+    if app_id:
+        headers["X-IG-App-ID"] = app_id
+    if asbd_id:
+        headers["X-ASBD-ID"] = asbd_id
+    csrftoken = get_cookie_value(cookie_header, "csrftoken")
     session.headers.update(headers)
+    if csrftoken:
+        session.headers["X-CSRFToken"] = csrftoken
     return session
 
 
-def cookie_value(cookie_header: str, key: str) -> str | None:
+def get_cookie_value(cookie_header: str, key: str) -> str | None:
     """Read a cookie value from a raw Cookie header string.
 
     Returns
@@ -106,7 +104,7 @@ def randomized_delay(
     scale: float = 1.0,
 ) -> None:
     """Sleep for a randomized delay within the configured bounds."""
-    time.sleep(RANDOM.uniform(min_delay * scale, max_delay * scale))
+    time.sleep(SYSTEM_RANDOM.uniform(min_delay * scale, max_delay * scale))
 
 
 def request_with_retry(
@@ -116,16 +114,16 @@ def request_with_retry(
     *,
     params: dict[str, str] | None = None,
     stream: bool = False,
-) -> tuple[requests.Response | None, str | None]:
+) -> tuple[requests.Response | None, ErrorCode | None]:
     """Execute a GET request with retry and backoff for transient failures.
 
     Returns
     -------
-    tuple[requests.Response | None, str | None]
+    tuple[requests.Response | None, ErrorCode | None]
         The successful response, or an error code when retries are exhausted.
 
     """
-    last_error: str | None = None
+    last_error: ErrorCode | None = None
     for attempt in range(1, retry.max_retries + 1):
         try:
             response = session.get(
@@ -134,8 +132,8 @@ def request_with_retry(
                 timeout=retry.timeout,
                 stream=stream,
             )
-        except requests.RequestException as exc:
-            last_error = f"request_exception:{exc.__class__.__name__}"
+        except requests.RequestException:
+            last_error = ErrorCode.NETWORK_UNKNOWN
             randomized_delay(
                 retry.min_delay,
                 retry.max_delay,
@@ -153,16 +151,16 @@ def request_with_retry(
                 if retry_after and retry_after.isdigit()
                 else retry.base_retry_seconds * (2 ** (attempt - 1))
             )
-            last_error = f"http_{response.status_code}"
+            last_error = error_code_from_status(response.status_code)
             randomized_delay(retry.min_delay, retry.max_delay, scale=wait_seconds)
             continue
         # Non-retryable status codes usually mean the request itself is wrong or
         # the caller lacks permission, so stop immediately.
-        return None, f"http_{response.status_code}"
-    return None, last_error or "request_failed"
+        return None, error_code_from_status(response.status_code)
+    return None, last_error or ErrorCode.REQUEST_FAILED
 
 
-def json_payload(response: requests.Response) -> dict[str, object] | None:
+def get_json_payload(response: requests.Response) -> dict[str, object] | None:
     """Decode a JSON object response body.
 
     Returns
@@ -180,7 +178,27 @@ def json_payload(response: requests.Response) -> dict[str, object] | None:
     return cast("dict[str, object]", payload) if isinstance(payload, dict) else None
 
 
-def json_error(response: requests.Response, prefix: str) -> str:
+def _sanitize_preview(text: str, max_length: int = 120) -> str:
+    """Remove sensitive data from text before logging.
+
+    Redacts cookies, tokens, and session identifiers.
+
+    Returns
+    -------
+    str
+        Sanitized text with sensitive values redacted.
+
+    """
+    sanitized = re.sub(
+        r"(token|cookie|session|csrftoken|sessionid)=([^&\s;]+)",
+        r"\1=REDACTED",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return sanitized[:max_length].replace("\n", " ")
+
+
+def format_json_error(response: requests.Response, prefix: str) -> str:
     """Summarize why a response body could not be treated as expected JSON.
 
     Returns
@@ -190,7 +208,7 @@ def json_error(response: requests.Response, prefix: str) -> str:
 
     """
     content_type = (response.headers.get("content-type") or "").lower()
-    preview = (response.text or "")[:120].replace("\n", " ")
+    preview = _sanitize_preview(response.text or "")
     if "json" not in content_type:
         return f"{prefix}_non_json:{content_type}:{preview}"
     return f"{prefix}_json_decode_failed"

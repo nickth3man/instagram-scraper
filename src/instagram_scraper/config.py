@@ -1,41 +1,141 @@
 # Copyright (c) 2026
-"""Configuration models for the unified scraper CLI."""
+"""Unified configuration for Instagram scraper operations.
 
+This module provides a single source of truth for configuration
+dataclasses, replacing duplicate Config classes across modules.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+@dataclass(frozen=True, slots=True)
+class RetryConfig:
+    """HTTP retry settings shared across Instagram API callers.
+
+    Attributes
+    ----------
+    timeout : int
+        Request timeout in seconds.
+    max_retries : int
+        Maximum number of retry attempts.
+    min_delay : float
+        Minimum delay between retries in seconds.
+    max_delay : float
+        Maximum delay between retries in seconds.
+    base_retry_seconds : float
+        Base for exponential backoff.
+
+    """
+
+    timeout: int = 30
+    max_retries: int = 3
+    min_delay: float = 0.05
+    max_delay: float = 0.2
+    base_retry_seconds: float = 1.0
 
 
-class AppConfig(BaseModel):
-    """Top-level application configuration values."""
+@dataclass(frozen=True, slots=True)
+class HttpConfig:
+    """HTTP client configuration.
 
-    model_config = ConfigDict(extra="forbid")
+    Combines retry settings with authentication headers.
 
-    output_dir: Path = Path("data")
-    limit: int | None = Field(default=None, ge=1)
-    raw_captures: bool = False
-    request_timeout: int = Field(default=30, ge=1)
-    max_retries: int = Field(default=5, ge=1)
-    min_delay: float = Field(default=0.05, ge=0)
-    max_delay: float = Field(default=0.2, ge=0)
-    checkpoint_every: int = Field(default=20, ge=1)
+    Attributes
+    ----------
+    timeout : int
+        Request timeout in seconds.
+    max_retries : int
+        Maximum retry attempts.
+    min_delay : float
+        Minimum retry delay.
+    max_delay : float
+        Maximum retry delay.
+    cookie_header : str
+        Raw Cookie header for authentication.
 
-    @model_validator(mode="after")
-    def validate_delay_bounds(self) -> "AppConfig":
-        """Ensure delay bounds are ordered.
+    """
 
-        Returns
-        -------
-        AppConfig
-            The validated config instance.
+    timeout: int = 30
+    max_retries: int = 3
+    min_delay: float = 0.05
+    max_delay: float = 0.2
+    cookie_header: str = ""
 
-        Raises
-        ------
-        ValueError
-            Raised when `min_delay` exceeds `max_delay`.
+    @property
+    def retry(self) -> RetryConfig:
+        """Get retry configuration subset."""
+        return RetryConfig(
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            min_delay=self.min_delay,
+            max_delay=self.max_delay,
+        )
 
-        """
-        if self.min_delay > self.max_delay:
-            message = "min_delay must be less than or equal to max_delay"
-            raise ValueError(message)
-        return self
+
+@dataclass(frozen=True, slots=True)
+class OutputConfig:
+    """Output file configuration.
+
+    Attributes
+    ----------
+    output_dir : Path
+        Directory for output files.
+    should_reset_output : bool
+        Clear existing output on start.
+    checkpoint_every : int
+        Save checkpoint every N items.
+
+    """
+
+    output_dir: Path = field(default_factory=lambda: Path("data"))
+    should_reset_output: bool = False
+    checkpoint_every: int = 20
+
+
+@dataclass(frozen=True, slots=True)
+class ScraperConfig:
+    """Complete scraper configuration.
+
+    Combines HTTP, output, and scraper-specific settings.
+
+    Attributes
+    ----------
+    http : HttpConfig
+        HTTP client configuration.
+    output : OutputConfig
+        Output file configuration.
+    should_resume : bool
+        Resume from checkpoint if available.
+    limit : int | None
+        Maximum items to process.
+
+    """
+
+    http: HttpConfig = field(default_factory=HttpConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
+    should_resume: bool = False
+    limit: int | None = None
+
+
+@runtime_checkable
+class HasRetryConfig(Protocol):
+    """Protocol for objects with retry configuration."""
+
+    @property
+    def retry(self) -> RetryConfig:
+        """Retry configuration."""
+        ...
+
+
+@runtime_checkable
+class HasOutputDir(Protocol):
+    """Protocol for objects with output directory."""
+
+    @property
+    def output_dir(self) -> Path:
+        """Output directory path."""
+        ...

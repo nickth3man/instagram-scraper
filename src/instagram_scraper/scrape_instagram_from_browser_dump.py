@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 from ._instagram_http import (
     RetryConfig,
     build_instagram_session,
-    json_error,
-    json_payload,
+    format_json_error,
+    get_json_payload,
     randomized_delay,
     request_with_retry,
 )
@@ -115,8 +115,8 @@ class Config:
 
     tool_dump_path: Path
     output_dir: Path
-    resume: bool
-    reset_output: bool
+    should_resume: bool
+    should_reset_output: bool
     start_index: int
     limit: int | None
     checkpoint_every: int
@@ -157,8 +157,8 @@ def parse_args() -> Config:
     return Config(
         tool_dump_path=Path(args.tool_dump_path),
         output_dir=Path(args.output_dir),
-        resume=args.resume,
-        reset_output=args.reset_output,
+        should_resume=args.resume,
+        should_reset_output=args.reset_output,
         start_index=max(0, args.start_index),
         limit=args.limit,
         checkpoint_every=max(1, args.checkpoint_every),
@@ -192,7 +192,7 @@ def fetch_media_id(
     # Try the clean API route first because it gives us structured JSON.
     response, error = _request_with_retry(session, shortcode_info_url, cfg)
     if response is not None:
-        payload = _json_payload(response)
+        payload = get_json_payload(response)
         if payload is not None:
             items = payload.get("items")
             if isinstance(items, list) and items:
@@ -244,24 +244,24 @@ def run(cfg: Config) -> dict[str, object]:
         "owner_id",
     ]
     error_header = ["index", "post_url", "shortcode", "media_id", "stage", "error"]
-    _ensure_csv_with_header(
+    ensure_csv_with_header(
         output_paths["posts_csv"],
         post_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
-    _ensure_csv_with_header(
+    ensure_csv_with_header(
         output_paths["comments_csv"],
         comment_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
-    _ensure_csv_with_header(
+    ensure_csv_with_header(
         output_paths["errors_csv"],
         error_header,
-        reset=cfg.reset_output,
+        reset=cfg.should_reset_output,
     )
 
     # Resuming means "start from the saved checkpoint if there is one".
-    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
+    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
     metrics = _initial_metrics(cfg, urls, checkpoint)
     session = _build_session(cfg.cookie_header)
     context = _RunContext(
@@ -282,7 +282,7 @@ def run(cfg: Config) -> dict[str, object]:
     finally:
         session.close()
     summary = _build_summary(cfg.output_dir, output_paths, metrics)
-    _atomic_write_text(
+    atomic_write_text(
         cfg.output_dir / "summary.json",
         json.dumps(summary, indent=2),
     )
@@ -484,9 +484,9 @@ def _fetch_media_info(
     response, error = _request_with_retry(session, url, cfg)
     if response is None:
         return None, error or "media_info_request_failed"
-    payload = _json_payload(response)
+    payload = get_json_payload(response)
     if payload is None:
-        return None, _json_error(response, "media_info")
+        return None, format_json_error(response, "media_info")
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         return None, "media_info_empty"
@@ -519,9 +519,9 @@ def _fetch_comments(
         )
         if response is None:
             return comments, error or "comments_request_failed"
-        payload = _json_payload(response)
+        payload = get_json_payload(response)
         if payload is None:
-            return comments, _json_error(response, "comments")
+            return comments, format_json_error(response, "comments")
         page_comments = payload.get("comments")
         if isinstance(page_comments, list):
             comments.extend(_comment_rows(cast("list[object]", page_comments)))
@@ -561,22 +561,6 @@ def _comment_rows(comments: list[object]) -> list[_CommentRow]:
     return rows
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    atomic_write_text(path, content)
-
-
-def _write_json_line(path: Path, payload: dict[str, object]) -> None:
-    write_json_line(path, payload)
-
-
-def _ensure_csv_with_header(path: Path, header: list[str], *, reset: bool) -> None:
-    ensure_csv_with_header(path, header, reset=reset)
-
-
-def _append_csv_row(path: Path, header: list[str], row: dict[str, object]) -> None:
-    append_csv_row(path, header, row)
-
-
 def _checkpoint_path(output_dir: Path) -> Path:
     return output_dir / "checkpoint.json"
 
@@ -588,12 +572,12 @@ def _load_checkpoint(output_dir: Path) -> _CheckpointState | None:
 
 
 def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
-    _atomic_write_text(_checkpoint_path(output_dir), json.dumps(state, indent=2))
+    atomic_write_text(_checkpoint_path(output_dir), json.dumps(state, indent=2))
 
 
 def _prepare_output(cfg: Config) -> _OutputPaths:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    if cfg.reset_output:
+    if cfg.should_reset_output:
         # Reset mode throws away old artifacts so the next run starts cleanly.
         for name in (
             "posts.ndjson",
@@ -628,9 +612,7 @@ def _initial_metrics(
         # On resume, never go backwards earlier than the saved next index.
         start_index = max(start_index, checkpoint["next_index"])
     end_index = (
-        len(urls)
-        if cfg.limit is None
-        else min(len(urls), start_index + cfg.limit)
+        len(urls) if cfg.limit is None else min(len(urls), start_index + cfg.limit)
     )
     started_at = checkpoint["started_at_utc"] if checkpoint else _iso_utc_now()
     return {
@@ -748,8 +730,8 @@ def _process_media(
     post_row = _post_row(media_id, shortcode, post_url, media_info)
     post_payload = _post_payload(post_row)
     # Write each record immediately so progress is durable even in long scrapes.
-    _write_json_line(context.output_paths["posts_ndjson"], post_payload)
-    _append_csv_row(
+    write_json_line(context.output_paths["posts_ndjson"], post_payload)
+    append_csv_row(
         context.output_paths["posts_csv"],
         context.headers["posts"],
         post_payload,
@@ -792,8 +774,8 @@ def _write_comments(
             "post_url": post_url,
             **comment,
         }
-        _write_json_line(context.output_paths["comments_ndjson"], row)
-        _append_csv_row(
+        write_json_line(context.output_paths["comments_ndjson"], row)
+        append_csv_row(
             context.output_paths["comments_csv"],
             context.headers["comments"],
             row,
@@ -830,8 +812,8 @@ def _record_error(
     error_header: list[str],
 ) -> None:
     error_payload = dict(error_row)
-    _write_json_line(output_paths["errors_ndjson"], error_payload)
-    _append_csv_row(output_paths["errors_csv"], error_header, error_payload)
+    write_json_line(output_paths["errors_ndjson"], error_payload)
+    append_csv_row(output_paths["errors_csv"], error_header, error_payload)
 
 
 def _checkpoint_state(
@@ -905,14 +887,6 @@ def _post_payload(post_row: _PostRow) -> dict[str, object]:
         "like_count": post_row["like_count"],
         "comment_count": post_row["comment_count"],
     }
-
-
-def _json_payload(response: requests.Response) -> dict[str, object] | None:
-    return json_payload(response)
-
-
-def _json_error(response: requests.Response, prefix: str) -> str:
-    return json_error(response, prefix)
 
 
 def _optional_int(value: object) -> int | None:

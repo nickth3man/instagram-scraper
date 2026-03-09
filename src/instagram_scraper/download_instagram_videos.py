@@ -10,7 +10,9 @@ import os
 import sys
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, cast
 
@@ -19,8 +21,8 @@ import requests
 from ._instagram_http import (
     RetryConfig,
     build_instagram_session,
-    json_error,
-    json_payload,
+    format_json_error,
+    get_json_payload,
     randomized_delay,
     request_with_retry,
 )
@@ -30,11 +32,26 @@ from ._shared_io import (
     ensure_csv_with_header,
     load_json_dict,
 )
+from .logging_config import LogContext, configure_logging, get_logger
+
+logger = get_logger(__name__)
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
 MEDIA_TYPE_VIDEO = 2
 MEDIA_TYPE_CAROUSEL = 8
+
+# Validation thresholds for CLI arguments
+MIN_DELAY_MINIMUM = 0.0
+MIN_RETRIES = 1
+MIN_TIMEOUT = 5
+MIN_CHECKPOINT = 1
+MIN_CONCURRENT = 1
+
+# Download configuration
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
+DEFAULT_BASE_RETRY_SECONDS = 1.0
+INITIAL_BEST_AREA = -1
 
 
 class _CheckpointState(TypedDict):
@@ -62,7 +79,7 @@ class _DownloadMetrics(TypedDict):
     completed_shortcodes: list[str]
 
 
-@dataclass
+@dataclass(slots=True)
 class _DownloadContext:
     cfg: Config
     session: requests.Session
@@ -72,22 +89,29 @@ class _DownloadContext:
     completed: set[str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _PostTarget:
     shortcode: str
     media_id: str
     post_url: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class _VideoDownloadTask:
+    position: int
+    video_url: str
+    destination: Path
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     """Runtime configuration for video downloads."""
 
     output_dir: Path
     posts_csv: Path
     comments_csv: Path
-    resume: bool
-    reset_output: bool
+    should_resume: bool
+    should_reset_output: bool
     min_delay: float
     max_delay: float
     max_retries: int
@@ -95,6 +119,7 @@ class Config:
     checkpoint_every: int
     limit: int | None
     cookie_header: str
+    max_concurrent_downloads: int
 
 
 def parse_args() -> Config:
@@ -123,20 +148,22 @@ def parse_args() -> Config:
     parser.add_argument("--checkpoint-every", type=int, default=20)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--cookie-header", default=os.getenv("IG_COOKIE_HEADER", ""))
+    parser.add_argument("--max-concurrent-downloads", type=int, default=3)
     args = parser.parse_args()
     return Config(
         output_dir=Path(args.output_dir),
         posts_csv=Path(args.posts_csv),
         comments_csv=Path(args.comments_csv),
-        resume=args.resume,
-        reset_output=args.reset_output,
-        min_delay=max(0.0, args.min_delay),
+        should_resume=args.resume,
+        should_reset_output=args.reset_output,
+        min_delay=max(MIN_DELAY_MINIMUM, args.min_delay),
         max_delay=max(args.min_delay, args.max_delay),
-        max_retries=max(1, args.max_retries),
-        timeout=max(5, args.timeout),
-        checkpoint_every=max(1, args.checkpoint_every),
+        max_retries=max(MIN_RETRIES, args.max_retries),
+        timeout=max(MIN_TIMEOUT, args.timeout),
+        checkpoint_every=max(MIN_CHECKPOINT, args.checkpoint_every),
         limit=args.limit,
         cookie_header=args.cookie_header,
+        max_concurrent_downloads=max(MIN_CONCURRENT, args.max_concurrent_downloads),
     )
 
 
@@ -156,9 +183,18 @@ def download_video_file(
     """
     # Reuse an existing finished file instead of downloading the same bytes again.
     if destination.exists() and destination.stat().st_size > 0:
+        logger.debug(
+            "video_file_exists_skipping",
+            extra={"destination": str(destination)},
+        )
         return True, None
     if destination.exists():
         destination.unlink()
+
+    logger.info(
+        "downloading_video_file",
+        extra={"url": video_url, "destination": str(destination)},
+    )
     response, error = _request_with_retry(session, video_url, cfg, stream=True)
     if response is None:
         return False, error or "video_download_request_failed"
@@ -169,12 +205,16 @@ def download_video_file(
     )
     try:
         with temp_path.open("wb") as file:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
+            for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
                 if chunk:
                     file.write(chunk)
             file.flush()
             os.fsync(file.fileno())
     except (OSError, requests.RequestException) as exc:
+        logger.exception(
+            "video_download_write_error",
+            extra={"error": str(exc), "temp_path": str(temp_path)},
+        )
         temp_path.unlink(missing_ok=True)
         return False, f"file_write_error:{exc.__class__.__name__}"
     finally:
@@ -206,14 +246,40 @@ def run(cfg: Config) -> dict[str, object]:
         Raised when the configured `posts.csv` file does not exist.
 
     """
+    # Initialize structured logging for the run
+    configure_logging(level="INFO")
+    logger.info(
+        "download_run_started",
+        extra={
+            "output_dir": str(cfg.output_dir),
+            "posts_csv": str(cfg.posts_csv),
+            "should_resume": cfg.should_resume,
+            "should_reset_output": cfg.should_reset_output,
+            "limit": cfg.limit,
+            "max_concurrent_downloads": cfg.max_concurrent_downloads,
+        },
+    )
     if not cfg.posts_csv.exists():
         message = f"posts CSV not found: {cfg.posts_csv}"
+        logger.error("posts_csv_not_found", extra={"posts_csv": str(cfg.posts_csv)})
         raise FileNotFoundError(message)
+
+    logger.info(
+        "starting_video_downloads",
+        extra={
+            "output_dir": str(cfg.output_dir),
+            "posts_csv": str(cfg.posts_csv),
+            "should_resume": cfg.should_resume,
+            "should_reset_output": cfg.should_reset_output,
+            "limit": cfg.limit,
+            "max_concurrent_downloads": cfg.max_concurrent_downloads,
+        },
+    )
     paths = _prepare_output(cfg)
     # Group comments by shortcode once so each post can grab its own comments quickly.
     comments_by_shortcode = _load_comments_by_shortcode(cfg.comments_csv)
     rows = _target_rows(cfg.posts_csv, cfg.limit)
-    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.resume else None
+    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
     metrics = _initial_metrics(checkpoint)
     completed = set(metrics["completed_shortcodes"])
     session = _build_session(cfg.cookie_header)
@@ -235,7 +301,7 @@ def run(cfg: Config) -> dict[str, object]:
         cfg.output_dir / "videos_summary.json",
         json.dumps(summary, indent=2),
     )
-    _save_checkpoint(cfg.output_dir, _checkpoint_state(metrics, completed))
+    _save_checkpoint_snapshot(context)
     return summary
 
 
@@ -280,7 +346,7 @@ def _request_with_retry(
             max_retries=cfg.max_retries,
             min_delay=cfg.min_delay,
             max_delay=cfg.max_delay,
-            base_retry_seconds=1.0,
+            base_retry_seconds=DEFAULT_BASE_RETRY_SECONDS,
         ),
         stream=stream,
     )
@@ -315,7 +381,7 @@ def _pick_best_video_url(video_versions: object) -> str | None:
     if not isinstance(video_versions, list):
         return None
     best_url: str | None = None
-    best_area = -1
+    best_area = INITIAL_BEST_AREA
     for version in video_versions:
         if not isinstance(version, dict):
             continue
@@ -417,7 +483,7 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
     videos_root.mkdir(parents=True, exist_ok=True)
     index_csv = cfg.output_dir / "videos_index.csv"
     errors_csv = cfg.output_dir / "videos_errors.csv"
-    if cfg.reset_output:
+    if cfg.should_reset_output:
         # Reset mode removes old bookkeeping files and keeps the directory layout
         # simple for the next run.
         for path in (
@@ -438,8 +504,8 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
         "file_size_bytes",
     ]
     error_header = ["shortcode", "media_id", "post_url", "stage", "error"]
-    _ensure_csv(index_csv, index_header, reset_output=cfg.reset_output)
-    _ensure_csv(errors_csv, error_header, reset_output=cfg.reset_output)
+    _ensure_csv(index_csv, index_header, reset_output=cfg.should_reset_output)
+    _ensure_csv(errors_csv, error_header, reset_output=cfg.should_reset_output)
     return {
         "videos_root": videos_root,
         "index_csv": index_csv,
@@ -487,80 +553,150 @@ def _initial_metrics(checkpoint: _CheckpointState | None) -> _DownloadMetrics:
 
 
 def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
-    shortcode = row.get("shortcode", "")
-    media_id = row.get("media_id", "")
-    post_url = row.get("post_url", "")
-    post = _PostTarget(shortcode=shortcode, media_id=media_id, post_url=post_url)
-    if context.cfg.resume and shortcode in context.completed:
-        # Resume mode skips posts that were already marked complete in the checkpoint.
-        return
-    if not shortcode or not media_id:
-        _record_download_error(
+    post = _post_target_from_row(row)
+    with LogContext(shortcode=post.shortcode, media_id=post.media_id):
+        # Periodic checkpoint-progress logging:
+        # announce progress every checkpoint interval
+        if (
+            context.metrics["processed"] > 0
+            and context.metrics["processed"] % context.cfg.checkpoint_every == 0
+        ):
+            logger.info(
+                "checkpoint_progress",
+                extra={
+                    "processed": context.metrics["processed"],
+                    "completed_shortcodes": len(context.completed),
+                },
+            )
+        if context.cfg.should_resume and post.shortcode in context.completed:
+            # Resume mode skips posts already marked complete in checkpoint.
+            return
+        if not _validate_post_target(context, post):
+            return
+
+        # Request-scoped processing log
+        logger.info("processing post")
+
+        video_entries = _resolve_video_entries(context, post)
+        if video_entries is None:
+            return
+        caption_text = row.get("caption", "")
+        post_comments = context.comments_by_shortcode.get(post.shortcode, [])
+        post_dir = _write_post_payload(
+            context,
+            post.shortcode,
+            caption_text,
+            post_comments,
+        )
+        downloaded_for_post = _download_entries(
             context,
             post,
-            stage="input_validation",
-            error="missing_shortcode_or_media_id",
+            video_entries,
+            post_dir=post_dir,
         )
-        _increment_metric(context.metrics, "errors")
-        _increment_metric(context.metrics, "processed")
-        return
+        _write_post_metadata(
+            post_dir,
+            _post_metadata(
+                post,
+                caption_text,
+                row.get("comment_count"),
+                len(post_comments),
+                downloaded_for_post,
+            ),
+        )
+        _mark_completed(context.metrics, context.completed, post.shortcode)
+        _maybe_checkpoint(context)
+        _randomized_delay(context.cfg)
+
+
+def _post_target_from_row(row: dict[str, str]) -> _PostTarget:
+    return _PostTarget(
+        shortcode=row.get("shortcode", ""),
+        media_id=row.get("media_id", ""),
+        post_url=row.get("post_url", ""),
+    )
+
+
+def _validate_post_target(context: _DownloadContext, post: _PostTarget) -> bool:
+    if post.shortcode and post.media_id:
+        return True
+    _record_error_with_metric(
+        context,
+        post,
+        stage="input_validation",
+        error="missing_shortcode_or_media_id",
+    )
+    _increment_metric(context.metrics, "processed")
+    return False
+
+
+def _resolve_video_entries(
+    context: _DownloadContext,
+    post: _PostTarget,
+) -> list[dict[str, object]] | None:
     media_info, media_info_error = _fetch_media_info(
         context.session,
-        media_id,
+        post.media_id,
         context.cfg,
     )
     if media_info is None:
-        _record_download_error(
+        _record_error_with_metric(
             context,
             post,
             stage="fetch_media_info",
             error=media_info_error or "media_info_failed",
         )
-        _increment_metric(context.metrics, "errors")
-        _mark_completed(context.metrics, context.completed, shortcode)
-        return
+        _mark_completed(context.metrics, context.completed, post.shortcode)
+        return None
     video_entries = _extract_video_entries(media_info)
     if not video_entries:
         _increment_metric(context.metrics, "skipped_no_video")
-        _mark_completed(context.metrics, context.completed, shortcode)
-        return
+        _mark_completed(context.metrics, context.completed, post.shortcode)
+        return None
+    return video_entries
+
+
+def _write_post_payload(
+    context: _DownloadContext,
+    shortcode: str,
+    caption_text: str,
+    post_comments: list[dict[str, str]],
+) -> Path:
     post_dir = context.paths["videos_root"] / shortcode
     post_dir.mkdir(parents=True, exist_ok=True)
-    caption_text = row.get("caption", "")
     # Save the caption and comments next to the videos so each post directory is a
     # self-contained bundle of everything we know about that post.
-    (post_dir / "caption.txt").write_text(caption_text, encoding="utf-8")
-    _write_comments_snapshot(
-        post_dir,
-        context.comments_by_shortcode.get(shortcode, []),
+    _atomic_write_text(post_dir / "caption.txt", caption_text)
+    _write_comments_snapshot(post_dir, post_comments)
+    return post_dir
+
+
+def _write_post_metadata(
+    post_dir: Path,
+    metadata: dict[str, object],
+) -> None:
+    _atomic_write_text(
+        post_dir / "metadata.json",
+        json.dumps(metadata, indent=2, ensure_ascii=False),
     )
-    downloaded_for_post = _download_entries(
-        context,
-        post,
-        video_entries,
-        post_dir=post_dir,
-    )
-    metadata = {
-        "shortcode": shortcode,
-        "media_id": media_id,
-        "post_url": post_url,
+
+
+def _post_metadata(
+    post: _PostTarget,
+    caption_text: str,
+    comment_count_reported: str | None,
+    comments_saved: int,
+    downloaded_for_post: list[dict[str, object]],
+) -> dict[str, object]:
+    return {
+        "shortcode": post.shortcode,
+        "media_id": post.media_id,
+        "post_url": post.post_url,
         "caption": caption_text,
-        "comment_count_reported": row.get("comment_count"),
-        "comments_saved": len(context.comments_by_shortcode.get(shortcode, [])),
+        "comment_count_reported": comment_count_reported,
+        "comments_saved": comments_saved,
         "video_files": downloaded_for_post,
     }
-    (post_dir / "metadata.json").write_text(
-        json.dumps(metadata, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    _mark_completed(context.metrics, context.completed, shortcode)
-    if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
-        # Save progress regularly so long download runs can resume after interruption.
-        _save_checkpoint(
-            context.cfg.output_dir,
-            _checkpoint_state(context.metrics, context.completed),
-        )
-    _randomized_delay(context.cfg)
 
 
 def _write_comments_snapshot(
@@ -579,14 +715,12 @@ def _write_comments_snapshot(
         "owner_id",
     ]
     comments_path = post_dir / "comments.csv"
-    _ensure_csv(comments_path, comments_header, reset_output=False)
-    if not post_comments:
-        return
-    with comments_path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=comments_header)
-        writer.writeheader()
-        for comment_row in post_comments:
-            writer.writerow(comment_row)
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=comments_header)
+    writer.writeheader()
+    for comment_row in post_comments:
+        writer.writerow(comment_row)
+    _atomic_write_text(comments_path, buffer.getvalue())
 
 
 def _download_entries(
@@ -596,43 +730,81 @@ def _download_entries(
     post_dir: Path,
 ) -> list[dict[str, object]]:
     downloaded: list[dict[str, object]] = []
+    tasks = _plan_video_downloads(post, video_entries, post_dir)
+
+    max_workers = context.cfg.max_concurrent_downloads
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {
+            executor.submit(_download_task, context, post, task): task for task in tasks
+        }
+
+        for future in as_completed(future_to_task):
+            row = future.result()
+            if row is not None:
+                downloaded.append(row)
+
+    return downloaded
+
+
+def _plan_video_downloads(
+    post: _PostTarget,
+    video_entries: list[dict[str, object]],
+    post_dir: Path,
+) -> list[_VideoDownloadTask]:
+    tasks: list[_VideoDownloadTask] = []
     for entry in video_entries:
         position = cast("int", entry["position"])
         video_url = cast("str", entry["video_url"])
-        destination = post_dir / f"{post.shortcode}_{position:02d}.mp4"
-        ok, download_error = download_video_file(
-            context.session,
-            video_url,
-            destination,
-            context.cfg,
+        tasks.append(
+            _VideoDownloadTask(
+                position=position,
+                video_url=video_url,
+                destination=post_dir / f"{post.shortcode}_{position:02d}.mp4",
+            ),
         )
-        if not ok:
-            _record_download_error(
-                context,
-                post,
-                stage="download_video_file",
-                error=download_error or "video_download_failed",
-            )
-            _increment_metric(context.metrics, "errors")
-            continue
-        # The index CSV is the master list of every saved file and where it lives.
-        row = {
-            "shortcode": post.shortcode,
-            "media_id": post.media_id,
-            "post_url": post.post_url,
-            "position": position,
-            "video_url": video_url,
-            "file_path": str(destination),
-            "file_size_bytes": destination.stat().st_size,
-        }
-        _append_csv(
-            context.paths["index_csv"],
-            context.paths["index_header"],
-            row,
+    return tasks
+
+
+def _download_task(
+    context: _DownloadContext,
+    post: _PostTarget,
+    task: _VideoDownloadTask,
+) -> dict[str, object] | None:
+    ok, download_error = download_video_file(
+        context.session,
+        task.video_url,
+        task.destination,
+        context.cfg,
+    )
+    if not ok:
+        _record_error_with_metric(
+            context,
+            post,
+            stage="download_video_file",
+            error=download_error or "video_download_failed",
         )
-        downloaded.append(row)
-        _increment_metric(context.metrics, "downloaded_files")
-    return downloaded
+        return None
+    row = _index_row(post, task)
+    _append_csv(
+        context.paths["index_csv"],
+        context.paths["index_header"],
+        row,
+    )
+    _increment_metric(context.metrics, "downloaded_files")
+    return row
+
+
+def _index_row(post: _PostTarget, task: _VideoDownloadTask) -> dict[str, object]:
+    # The index CSV is the master list of every saved file and where it lives.
+    return {
+        "shortcode": post.shortcode,
+        "media_id": post.media_id,
+        "post_url": post.post_url,
+        "position": task.position,
+        "video_url": task.video_url,
+        "file_path": str(task.destination),
+        "file_size_bytes": task.destination.stat().st_size,
+    }
 
 
 def _record_download_error(
@@ -641,6 +813,15 @@ def _record_download_error(
     stage: str,
     error: str,
 ) -> None:
+    logger.warning(
+        "post_download_error",
+        extra={
+            "shortcode": post.shortcode,
+            "media_id": post.media_id,
+            "stage": stage,
+            "error": error,
+        },
+    )
     _append_csv(
         context.paths["errors_csv"],
         context.paths["error_header"],
@@ -652,6 +833,17 @@ def _record_download_error(
             "error": error,
         },
     )
+
+
+def _record_error_with_metric(
+    context: _DownloadContext,
+    post: _PostTarget,
+    *,
+    stage: str,
+    error: str,
+) -> None:
+    _record_download_error(context, post, stage, error)
+    _increment_metric(context.metrics, "errors")
 
 
 def _mark_completed(
@@ -679,6 +871,27 @@ def _checkpoint_state(
     }
 
 
+def _save_checkpoint_snapshot(context: _DownloadContext) -> None:
+    _save_checkpoint(
+        context.cfg.output_dir,
+        _checkpoint_state(context.metrics, context.completed),
+    )
+
+
+def _maybe_checkpoint(context: _DownloadContext) -> None:
+    if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
+        # Save progress regularly so long download runs can resume after interruption.
+        logger.info(
+            "saving_checkpoint",
+            extra={
+                "processed": context.metrics["processed"],
+                "downloaded_files": context.metrics["downloaded_files"],
+                "errors": context.metrics["errors"],
+            },
+        )
+        _save_checkpoint_snapshot(context)
+
+
 def _build_summary(
     output_dir: Path,
     paths: _DownloadPaths,
@@ -699,11 +912,11 @@ def _build_summary(
 
 
 def _json_payload(response: requests.Response) -> dict[str, object] | None:
-    return json_payload(response)
+    return get_json_payload(response)
 
 
 def _json_error(response: requests.Response, prefix: str) -> str:
-    return json_error(response, prefix)
+    return format_json_error(response, prefix)
 
 
 def _increment_metric(
