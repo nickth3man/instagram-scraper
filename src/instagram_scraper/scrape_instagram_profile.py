@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,7 +20,41 @@ import instaloader
 from instaloader import Profile
 from instaloader.exceptions import InstaloaderException
 
+from ._shared_io import atomic_write_text
+from .logging_config import get_logger
+
 DEFAULT_DATA_DIR_FALLBACK = "data"
+
+# CSV fieldnames extracted to constants to avoid duplication
+POSTS_CSV_FIELDNAMES = [
+    "shortcode",
+    "post_url",
+    "date_utc",
+    "caption",
+    "likes",
+    "comments_count_reported",
+    "is_video",
+    "typename",
+    "owner_username",
+]
+
+COMMENTS_CSV_FIELDNAMES = [
+    "post_shortcode",
+    "id",
+    "parent_id",
+    "created_at_utc",
+    "text",
+    "comment_like_count",
+    "owner_username",
+    "owner_id",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _ScrapeResults:
+    posts: list[dict[str, object]]
+    flat_comments: list[dict[str, int | str | None]]
+    extraction_errors: list[dict[str, str]]
 
 
 def comment_to_dict(
@@ -97,6 +132,7 @@ def _comment_row(
 
 
 def _iter_post_rows(
+    loader: instaloader.Instaloader,
     profile: Profile,
     username: str,
 ) -> tuple[
@@ -108,6 +144,12 @@ def _iter_post_rows(
     flat_comments: list[dict[str, int | str | None]] = []
     extraction_errors: list[dict[str, str]] = []
     for post in profile.get_posts():
+        quota_messages = getattr(loader.context, "quotamessages", None)
+        if quota_messages:
+            get_logger(__name__).warning(
+                "rate limit warning",
+                extra={"quota_message": quota_messages[-1]},
+            )
         post_comments, extraction_error = _collect_comments(post)
         if extraction_error and post.comments != 0:
             # If Instagram reported comments but we failed to fetch them, record
@@ -137,57 +179,36 @@ def _iter_post_rows(
 
 
 def _write_posts_csv(posts_csv_path: Path, posts: Iterable[dict[str, object]]) -> None:
-    fieldnames = [
-        "shortcode",
-        "post_url",
-        "date_utc",
-        "caption",
-        "likes",
-        "comments_count_reported",
-        "is_video",
-        "typename",
-        "owner_username",
-    ]
     with posts_csv_path.open("w", newline="", encoding="utf-8") as posts_file:
-        writer = csv.DictWriter(posts_file, fieldnames=fieldnames)
+        writer = csv.DictWriter(posts_file, fieldnames=POSTS_CSV_FIELDNAMES)
         writer.writeheader()
         for post in posts:
             # Only write the simple summary columns here. The nested `comments`
             # list stays in the JSON file instead.
-            writer.writerow({key: post[key] for key in fieldnames})
+            writer.writerow({key: post[key] for key in POSTS_CSV_FIELDNAMES})
 
 
 def _write_comments_csv(
     comments_csv_path: Path,
     comments: Iterable[dict[str, int | str | None]],
 ) -> None:
-    fieldnames = [
-        "post_shortcode",
-        "id",
-        "parent_id",
-        "created_at_utc",
-        "text",
-        "comment_like_count",
-        "owner_username",
-        "owner_id",
-    ]
     with comments_csv_path.open("w", newline="", encoding="utf-8") as comments_file:
-        writer = csv.DictWriter(comments_file, fieldnames=fieldnames)
+        writer = csv.DictWriter(comments_file, fieldnames=COMMENTS_CSV_FIELDNAMES)
         writer.writeheader()
         for comment in comments:
             writer.writerow(comment)
 
 
-def main() -> None:
-    """Scrape a single Instagram profile and write the resulting files."""
-    args = _parse_args()
-    target_username = args.username
-    started_at = datetime.now(UTC)
-    output_dir = _output_dir(target_username)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    # Disable downloads we do not need so this command focuses on metadata and
-    # comments instead of saving media files.
-    loader = instaloader.Instaloader(
+def _create_instaloader() -> instaloader.Instaloader:
+    """Create and configure an Instaloader instance for metadata scraping.
+
+    Returns
+    -------
+    instaloader.Instaloader
+        Configured instance with media downloads disabled.
+
+    """
+    return instaloader.Instaloader(
         dirname_pattern="{target}",
         filename_pattern="{shortcode}",
         download_pictures=False,
@@ -200,41 +221,79 @@ def main() -> None:
         compress_json=False,
         quiet=True,
     )
-    profile = Profile.from_username(loader.context, target_username)
-    all_posts, flat_comments, extraction_errors = _iter_post_rows(
-        profile,
-        target_username,
-    )
-    finished_at = datetime.now(UTC)
 
-    # JSON keeps the full nested structure, which is helpful if another program
-    # wants to inspect everything about a post in one file.
-    dataset = {
+
+def _create_dataset_dict(
+    target_username: str,
+    started_at: datetime,
+    finished_at: datetime,
+    results: _ScrapeResults,
+) -> dict[str, object]:
+    """Create the dataset dictionary for JSON output.
+
+    Parameters
+    ----------
+    target_username : str
+        Instagram username being scraped.
+    started_at : datetime
+        Scraping start time.
+    finished_at : datetime
+        Scraping completion time.
+    results : _ScrapeResults
+        Collected post, comment, and extraction error data.
+
+    Returns
+    -------
+    dict[str, object]
+        Dataset dictionary ready for JSON serialization.
+
+    """
+    return {
         "target_profile": target_username,
         "source_url": f"https://www.instagram.com/{target_username}/?hl=en",
         "started_at_utc": started_at.isoformat(),
         "finished_at_utc": finished_at.isoformat(),
-        "posts_total": len(all_posts),
-        "comments_total": len(flat_comments),
-        "errors_count": len(extraction_errors),
-        "posts": all_posts,
+        "posts_total": len(results.posts),
+        "comments_total": len(results.flat_comments),
+        "errors_count": len(results.extraction_errors),
+        "posts": results.posts,
     }
-    dataset_path = output_dir / "instagram_dataset.json"
-    dataset_path.write_text(
-        json.dumps(dataset, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    posts_csv_path = output_dir / "posts.csv"
-    _write_posts_csv(posts_csv_path, all_posts)
-    comments_csv_path = output_dir / "comments.csv"
-    _write_comments_csv(comments_csv_path, flat_comments)
 
-    # The summary is the quick "what happened?" file for humans and automation.
-    summary = {
+
+def _create_summary_dict(
+    target_username: str,
+    finished_at: datetime,
+    output_dir: Path,
+    results: _ScrapeResults,
+) -> dict[str, object]:
+    """Create a summary dictionary for quick status checking.
+
+    Parameters
+    ----------
+    target_username : str
+        Instagram username being scraped.
+    finished_at : datetime
+        Scraping completion time.
+    output_dir : Path
+        Directory where output files were written.
+    results : _ScrapeResults
+        Collected post, comment, and extraction error data.
+
+    Returns
+    -------
+    dict[str, object]
+        Summary dictionary ready for JSON serialization.
+
+    """
+    dataset_path = output_dir / "instagram_dataset.json"
+    posts_csv_path = output_dir / "posts.csv"
+    comments_csv_path = output_dir / "comments.csv"
+
+    return {
         "profile": target_username,
-        "posts_extracted": len(all_posts),
-        "comments_extracted": len(flat_comments),
-        "errors_count": len(extraction_errors),
+        "posts_extracted": len(results.posts),
+        "comments_extracted": len(results.flat_comments),
+        "errors_count": len(results.extraction_errors),
         "generated_at_utc": finished_at.isoformat(),
         "files": {
             "dataset_json": str(dataset_path),
@@ -242,11 +301,83 @@ def main() -> None:
             "comments_csv": str(comments_csv_path),
         },
     }
-    (output_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2),
-        encoding="utf-8",
+
+
+def _write_outputs(
+    output_dir: Path,
+    dataset: dict[str, object],
+    all_posts: list[dict[str, object]],
+    flat_comments: list[dict[str, int | str | None]],
+) -> None:
+    """Write all output files to disk.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory to write output files.
+    dataset : dict[str, object]
+        Dataset dictionary to write as JSON.
+    all_posts : list[dict[str, object]]
+        Post data to write as CSV.
+    flat_comments : list[dict[str, int | str | None]]
+        Comment data to write as CSV.
+
+    """
+    dataset_path = output_dir / "instagram_dataset.json"
+    atomic_write_text(
+        dataset_path,
+        json.dumps(dataset, indent=2, ensure_ascii=False),
     )
-    # CLI tools usually print one compact result line so shell scripts can read it.
+
+    posts_csv_path = output_dir / "posts.csv"
+    _write_posts_csv(posts_csv_path, all_posts)
+
+    comments_csv_path = output_dir / "comments.csv"
+    _write_comments_csv(comments_csv_path, flat_comments)
+
+
+def main() -> None:
+    """Scrape a single Instagram profile and write the resulting files."""
+    args = _parse_args()
+    target_username = args.username
+
+    started_at = datetime.now(UTC)
+    output_dir = _output_dir(target_username)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    loader = _create_instaloader()
+    profile = Profile.from_username(loader.context, target_username)
+    all_posts, flat_comments, extraction_errors = _iter_post_rows(
+        loader,
+        profile,
+        target_username,
+    )
+    finished_at = datetime.now(UTC)
+    results = _ScrapeResults(
+        posts=all_posts,
+        flat_comments=flat_comments,
+        extraction_errors=extraction_errors,
+    )
+
+    dataset = _create_dataset_dict(
+        target_username,
+        started_at,
+        finished_at,
+        results,
+    )
+    _write_outputs(output_dir, dataset, all_posts, flat_comments)
+
+    summary = _create_summary_dict(
+        target_username,
+        finished_at,
+        output_dir,
+        results,
+    )
+    atomic_write_text(
+        output_dir / "summary.json",
+        json.dumps(summary, indent=2),
+    )
+
     sys.stdout.write(
         json.dumps(
             {
