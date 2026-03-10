@@ -49,6 +49,12 @@ def mock_context(mocker) -> MagicMock:
     return ctx
 
 
+@pytest.fixture(autouse=True)
+def clear_cookie_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep local .env cookie values from leaking into unrelated CLI tests."""
+    monkeypatch.delenv("IG_COOKIE_HEADER", raising=False)
+
+
 # Test CLI App Structure
 
 
@@ -153,6 +159,25 @@ def test_scrape_url_with_cookie(mock_pipeline: MagicMock) -> None:
         "post_url": "https://www.instagram.com/p/ABC123/",
         "output_dir": None,
         "cookie_header": "sessionid=abc123",
+        "has_auth": True,
+    }
+    mock_pipeline.assert_called_once_with("url", **expected)
+
+
+def test_scrape_url_uses_env_cookie_default(mock_pipeline: MagicMock) -> None:
+    """Test URL scrape uses IG_COOKIE_HEADER when CLI arg is omitted."""
+    result = runner.invoke(
+        app,
+        ["scrape", "url", "--url", "https://www.instagram.com/p/ABC123/"],
+        env={"IG_COOKIE_HEADER": "sessionid=env-cookie"},
+    )
+
+    assert result.exit_code == 0
+    expected = {
+        **DEFAULT_SHARED_OPTIONS,
+        "post_url": "https://www.instagram.com/p/ABC123/",
+        "output_dir": None,
+        "cookie_header": "sessionid=env-cookie",
         "has_auth": True,
     }
     mock_pipeline.assert_called_once_with("url", **expected)

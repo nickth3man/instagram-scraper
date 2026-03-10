@@ -19,6 +19,9 @@ from instagram_scraper.error_codes import (
     ErrorCode,
     error_code_from_status,
 )
+from instagram_scraper.infrastructure.env import load_project_env
+
+load_project_env()
 
 RetryConfig = _config.RetryConfig
 

@@ -145,7 +145,7 @@ def test_urls_pipeline_preserves_existing_artifacts_when_resuming(
         return build_run_summary("urls", output_dir=Path(kwargs["output_dir"]))
 
     monkeypatch.setattr(
-        "instagram_scraper.core.pipeline.UrlScrapeProvider.run_urls",
+        "instagram_scraper.providers.url.UrlScrapeProvider.run_urls",
         fake_run_urls,
     )
     execute_pipeline(

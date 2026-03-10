@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from instagram_scraper.exporters.base import get_exporter
+
 if TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
@@ -185,8 +187,6 @@ def run_export(
         Summary of the export including rows exported and files processed.
 
     """
-    from instagram_scraper.exporters import get_exporter  # noqa: PLC0415
-
     types_to_export = (
         export_filter.types
         if export_filter.types is not None

@@ -5,18 +5,9 @@ from __future__ import annotations
 
 import FreeSimpleGUI
 
-SCRAPE_MODES = (
-    "profile",
-    "url",
-    "urls",
-    "hashtag",
-    "location",
-    "followers",
-    "following",
-    "likers",
-    "commenters",
-    "stories",
-)
+from instagram_scraper.core.mode_registry import list_gui_scrape_modes
+
+SCRAPE_MODES = list_gui_scrape_modes()
 
 TAB_PROFILE = "-TAB-PROFILE-"
 TAB_URL = "-TAB-URL-"

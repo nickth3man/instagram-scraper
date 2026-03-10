@@ -5,6 +5,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
+.env
 
 # Local data artifacts
 data/

@@ -1,28 +1,34 @@
 # Copyright (c) 2026
-"""Capability preflight checks for unified scrape modes."""
+"""Capability preflight checks for unified scrape and sync modes."""
 
+from instagram_scraper.core.mode_registry import (
+    SCRAPE_MODE_DEFINITIONS,
+    SYNC_MODE_DEFINITIONS,
+)
 from instagram_scraper.models import ModeDescriptor
 
 SUPPORT_TIER_BY_MODE = {
-    "profile": "stable",
-    "url": "stable",
-    "urls": "stable",
-    "hashtag": "auth-required",
-    "location": "auth-required",
-    "stories": "auth-required",
-    "followers": "experimental",
-    "following": "experimental",
-    "likers": "experimental",
-    "commenters": "experimental",
-    "sync:profile": "stable",
-    "sync:hashtag": "auth-required",
-    "sync:location": "auth-required",
+    **{
+        mode: definition.support_tier
+        for mode, definition in SCRAPE_MODE_DEFINITIONS.items()
+    },
+    **{
+        mode: definition.support_tier
+        for mode, definition in SYNC_MODE_DEFINITIONS.items()
+    },
 }
 
 AUTH_REQUIRED_MODES = {
-    mode
-    for mode, tier in SUPPORT_TIER_BY_MODE.items()
-    if tier in {"auth-required", "experimental"}
+    *(
+        mode
+        for mode, definition in SCRAPE_MODE_DEFINITIONS.items()
+        if definition.requires_auth
+    ),
+    *(
+        mode
+        for mode, definition in SYNC_MODE_DEFINITIONS.items()
+        if definition.requires_auth
+    ),
 }
 
 

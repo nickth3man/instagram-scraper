@@ -18,6 +18,7 @@ from typing import Literal, NotRequired, TypedDict, cast
 
 import requests
 
+from instagram_scraper.infrastructure.env import load_project_env
 from instagram_scraper.infrastructure.files import (
     append_csv_row,
     atomic_write_text,
@@ -37,6 +38,13 @@ from instagram_scraper.infrastructure.logging import (
     configure_logging,
     get_logger,
 )
+from instagram_scraper.workflows.video_download_support import (
+    CommentsLookup,
+    DownloadSessionPool,
+    iter_target_rows,
+)
+
+load_project_env()
 
 logger = get_logger(__name__)
 
@@ -115,9 +123,10 @@ class _DownloadContext:
     cfg: Config
     session: requests.Session
     paths: _DownloadPaths
-    comments_by_shortcode: dict[str, list[dict[str, str]]]
+    comments_by_shortcode: dict[str, list[dict[str, str]]] | CommentsLookup
     metrics: _DownloadMetrics
     completed: set[str]
+    download_sessions: DownloadSessionPool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,13 +316,18 @@ def run(cfg: Config) -> dict[str, object]:
         },
     )
     paths = _prepare_output(cfg)
-    # Group comments by shortcode once so each post can grab its own comments quickly.
-    comments_by_shortcode = _load_comments_by_shortcode(cfg.comments_csv)
-    rows = _target_rows(cfg.posts_csv, cfg.limit)
-    checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
+    comments_by_shortcode = CommentsLookup(
+        cfg.comments_csv,
+        cfg.output_dir / ".video_comments.sqlite3",
+    )
+    checkpoint = _load_resume_checkpoint(
+        cfg.output_dir,
+        should_resume=cfg.should_resume,
+    )
     metrics = _initial_metrics(checkpoint)
     completed = set(metrics["completed_shortcodes"])
     session = _build_session(cfg.cookie_header)
+    download_sessions = DownloadSessionPool(cfg.cookie_header)
     context = _DownloadContext(
         cfg=cfg,
         session=session,
@@ -321,18 +335,23 @@ def run(cfg: Config) -> dict[str, object]:
         comments_by_shortcode=comments_by_shortcode,
         metrics=metrics,
         completed=completed,
+        download_sessions=download_sessions,
     )
+    total_rows = 0
     try:
-        for row in rows:
+        for row in iter_target_rows(cfg.posts_csv, cfg.limit):
+            total_rows += 1
             _process_post_row(context, row)
     finally:
+        comments_by_shortcode.close()
+        download_sessions.close()
         session.close()
-    summary = _build_summary(cfg.output_dir, paths, metrics, len(rows))
+    summary = _build_summary(cfg.output_dir, paths, metrics, total_rows)
     _atomic_write_text(
         cfg.output_dir / "videos_summary.json",
         json.dumps(summary, indent=2),
     )
-    _save_checkpoint_snapshot(context)
+    _save_checkpoint_snapshot(context, completed=True)
     return summary
 
 
@@ -504,7 +523,41 @@ def _load_checkpoint(output_dir: Path) -> _CheckpointState | None:
     return cast("_CheckpointState", payload) if payload is not None else None
 
 
+def _load_resume_checkpoint(
+    output_dir: Path,
+    *,
+    should_resume: bool,
+) -> _CheckpointState | None:
+    if not should_resume:
+        logger.info("resume_disabled", extra={"output_dir": str(output_dir)})
+        return None
+    checkpoint = _load_checkpoint(output_dir)
+    if checkpoint is None:
+        logger.info("resume_checkpoint_missing", extra={"output_dir": str(output_dir)})
+        return None
+    logger.info(
+        "resume_checkpoint_loaded",
+        extra={
+            "output_dir": str(output_dir),
+            "processed": checkpoint["processed"],
+            "downloaded_files": checkpoint["downloaded_files"],
+            "errors": checkpoint["errors"],
+        },
+    )
+    return checkpoint
+
+
 def _save_checkpoint(output_dir: Path, state: _CheckpointState) -> None:
+    logger.info(
+        "checkpoint_saved",
+        extra={
+            "output_dir": str(output_dir),
+            "processed": state["processed"],
+            "downloaded_files": state["downloaded_files"],
+            "errors": state["errors"],
+            "completed": state.get("completed", False),
+        },
+    )
     _atomic_write_text(_checkpoint_file(output_dir), json.dumps(state, indent=2))
 
 
@@ -534,22 +587,7 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
 
 
 def _target_rows(posts_csv: Path, limit: int | None) -> list[dict[str, str]]:
-    with posts_csv.open("r", encoding="utf-8") as file:
-        rows = list(csv.DictReader(file))
-    # Only video and carousel posts can produce downloadable `.mp4` files.
-    filtered = [
-        dict(row)
-        for row in rows
-        if row.get("type") in {str(MEDIA_TYPE_VIDEO), str(MEDIA_TYPE_CAROUSEL)}
-    ]
-    filtered.sort(
-        key=lambda row: (
-            # Download plain video posts before carousels so simpler cases finish first.
-            0 if row.get("type") == str(MEDIA_TYPE_VIDEO) else 1,
-            row.get("shortcode") or "",
-        ),
-    )
-    return filtered if limit is None else filtered[:limit]
+    return list(iter_target_rows(posts_csv, limit))
 
 
 def _initial_metrics(checkpoint: _CheckpointState | None) -> _DownloadMetrics:
@@ -737,7 +775,10 @@ def _prepare_post_bundle(
     post: _PostTarget,
 ) -> tuple[str, list[dict[str, str]], Path]:
     caption_text = row.get("caption", "")
-    post_comments = context.comments_by_shortcode.get(post.shortcode, [])
+    post_comments = _comments_for_shortcode(
+        context.comments_by_shortcode,
+        post.shortcode,
+    )
     post_dir = _write_post_payload(
         context,
         post.shortcode,
@@ -822,8 +863,13 @@ def _download_task(
     post: _PostTarget,
     task: _VideoDownloadTask,
 ) -> dict[str, object] | None:
+    session = (
+        context.download_sessions.get()
+        if context.download_sessions is not None
+        else context.session
+    )
     ok, download_error = download_video_file(
-        context.session,
+        session,
         task.video_url,
         task.destination,
         context.cfg,
@@ -923,10 +969,17 @@ def _checkpoint_state(
     }
 
 
-def _save_checkpoint_snapshot(context: _DownloadContext) -> None:
+def _save_checkpoint_snapshot(
+    context: _DownloadContext,
+    *,
+    completed: bool = False,
+) -> None:
+    checkpoint_state = _checkpoint_state(context.metrics, context.completed)
+    if completed:
+        checkpoint_state["completed"] = True
     _save_checkpoint(
         context.cfg.output_dir,
-        _checkpoint_state(context.metrics, context.completed),
+        checkpoint_state,
     )
 
 
@@ -976,6 +1029,15 @@ def _increment_metric(
     key: Literal["processed", "downloaded_files", "errors", "skipped_no_video"],
 ) -> None:
     metrics[key] += 1
+
+
+def _comments_for_shortcode(
+    comments_source: dict[str, list[dict[str, str]]] | CommentsLookup,
+    shortcode: str,
+) -> list[dict[str, str]]:
+    if isinstance(comments_source, CommentsLookup):
+        return comments_source.get(shortcode)
+    return comments_source.get(shortcode, [])
 
 
 if __name__ == "__main__":

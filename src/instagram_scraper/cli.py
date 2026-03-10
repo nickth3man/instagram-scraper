@@ -10,6 +10,7 @@ import typer
 
 from instagram_scraper.core.pipeline import run_pipeline
 from instagram_scraper.export_filters import ExportFilter, run_export
+from instagram_scraper.infrastructure.env import load_project_env
 from instagram_scraper.infrastructure.logging import LogContext, get_logger
 from instagram_scraper.infrastructure.structured_logging import (
     build_logger as build_structlog_logger,
@@ -21,6 +22,8 @@ from instagram_scraper.reporting.generator import (
     generate_comparison_report,
     generate_report,
 )
+
+load_project_env()
 
 app = typer.Typer(help="Unified one-shot Instagram scraping CLI.")
 scrape_app = typer.Typer()
@@ -42,7 +45,15 @@ INPUT_OPTION = typer.Option(..., "--input")
 OUTPUT_DIR_OPTION = typer.Option(None, "--output-dir")
 LIMIT_OPTION = typer.Option(None, "--limit")
 POSTS_LIMIT_OPTION = typer.Option(None, "--posts-limit")
-COOKIE_HEADER_OPTION = typer.Option("", "--cookie-header")
+COOKIE_HEADER_OPTION = typer.Option(
+    "",
+    "--cookie-header",
+    envvar="IG_COOKIE_HEADER",
+    help=(
+        "Instagram cookie header. Prefer IG_COOKIE_HEADER in your environment "
+        "or .env file."
+    ),
+)
 RESUME_OPTION = typer.Option(None, "--resume/--no-resume")
 RESET_OUTPUT_OPTION = typer.Option(None, "--reset-output/--no-reset-output")
 STORIES_USERNAME_OPTION = typer.Option(None, "--username")
