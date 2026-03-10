@@ -125,3 +125,31 @@ class RawCaptureRecord(BaseModel):
     path: Path
     checksum: str | None = None
     source_endpoint: str | None = None
+
+
+class SyncStateRecord(BaseModel):
+    """Sync state for incremental scraping of a target."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_key: str
+    last_scraped_at: datetime | None = None
+    last_post_date: datetime | None = None
+    record_count: int = 0
+
+
+class SyncSummary(BaseModel):
+    """Summary for a sync run with differential statistics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    mode: str
+    target_key: str
+    new_posts: int = 0
+    skipped_posts: int = 0
+    total_posts: int = 0
+    errors: int = 0
+    output_dir: Path
+    first_sync: bool = False
+    last_post_date: datetime | None = None

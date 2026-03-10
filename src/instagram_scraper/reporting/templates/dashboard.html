@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<header>
+    <h1>{{ title }}</h1>
+    <p class="subtitle">Profile: {{ primary_metrics.overview.profile_name }}</p>
+</header>
+
+<section id="overview">
+    <h2>Overview</h2>
+    <div class="grid grid-4">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon purple">📷</div>
+                <span class="card-title">Total Posts</span>
+            </div>
+            <div class="card-value">{{ primary_metrics.overview.total_posts }}</div>
+            <div class="card-subtitle">Analyzed posts</div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon green">💬</div>
+                <span class="card-title">Total Comments</span>
+            </div>
+            <div class="card-value">{{ primary_metrics.overview.total_comments }}</div>
+            <div class="card-subtitle">Across all posts</div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon orange">👥</div>
+                <span class="card-title">Unique Users</span>
+            </div>
+            <div class="card-value">{{ primary_metrics.overview.unique_users }}</div>
+            <div class="card-subtitle">Interacted users</div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon red">❤️</div>
+                <span class="card-title">Avg Likes</span>
+            </div>
+            <div class="card-value">{{ primary_metrics.overview.avg_likes_per_post | round(1) }}</div>
+            <div class="card-subtitle">Per post average</div>
+        </div>
+    </div>
+    {% if primary_metrics.overview.date_range_start %}
+    <div class="card" style="margin-top: 1rem;">
+        <div class="stats-row">
+            <div class="stat-item">
+                <div class="stat-value">{{ primary_metrics.overview.date_range_start.strftime('%Y-%m-%d') }}</div>
+                <div class="stat-label">First Post</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{{ primary_metrics.overview.date_range_end.strftime('%Y-%m-%d') }}</div>
+                <div class="stat-label">Last Post</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{{ primary_metrics.overview.avg_comments_per_post | round(1) }}</div>
+                <div class="stat-label">Avg Comments/Post</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+<section id="activity">
+    <h2>Posting Activity</h2>
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="activityChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Activity Summary</span>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.activity.daily_posts | length }}</div>
+                    <div class="stat-label">Active Days</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.activity.weekly_posts | length }}</div>
+                    <div class="stat-label">Active Weeks</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.activity.monthly_posts | length }}</div>
+                    <div class="stat-label">Active Months</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="engagement">
+    <h2>Engagement Analysis</h2>
+    <div class="card">
+        <div class="chart-container large">
+            <canvas id="engagementChart"></canvas>
+        </div>
+    </div>
+</section>
+
+<section id="temporal">
+    <h2>Temporal Patterns</h2>
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="temporalChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Best Posting Times</span>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-value">{{ '%02d:00' % primary_metrics.temporal.best_posting_hour }}</div>
+                    <div class="stat-label">Best Hour</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.temporal.best_posting_day }}</div>
+                    <div class="stat-label">Best Day</div>
+                </div>
+            </div>
+            <div class="card-header" style="margin-top: 1rem;">
+                <span class="card-title">Daily Distribution</span>
+            </div>
+            <div class="stats-row">
+                {% for day, count in primary_metrics.temporal.daily_distribution.items() %}
+                <div class="stat-item">
+                    <div class="stat-value">{{ count }}</div>
+                    <div class="stat-label">{{ day[:3] }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="content">
+    <h2>Content Analysis</h2>
+    <div class="grid grid-2">
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Media Types</span>
+            </div>
+            <div class="chart-container small">
+                <canvas id="mediaChart"></canvas>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Content Stats</span>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.content.caption_length_avg | round(0) | int }}</div>
+                    <div class="stat-label">Avg Caption Length</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.content.posts_with_hashtags }}</div>
+                    <div class="stat-label">Posts with Hashtags</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ primary_metrics.content.posts_with_mentions }}</div>
+                    <div class="stat-label">Posts with Mentions</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% if primary_metrics.content.top_hashtags %}
+    <div class="card" style="margin-top: 1rem;">
+        <div class="card-header">
+            <span class="card-title">Top Hashtags</span>
+        </div>
+        <div>
+            {% for tag, count in primary_metrics.content.top_hashtags %}
+            <span class="tag">
+                #{{ tag }}
+                <span class="tag-count">{{ count }}</span>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</section>
+
+{% if has_comparison %}
+<section id="comparison">
+    <h2>Account Comparison</h2>
+    <div class="card">
+        <div class="chart-container">
+            <canvas id="comparisonChart"></canvas>
+        </div>
+    </div>
+    <div class="comparison-grid" style="margin-top: 1rem;">
+        <div class="comparison-item">
+            <h4>{{ primary_metrics.overview.profile_name }}</h4>
+            <div class="value" style="color: #6366f1;">{{ primary_metrics.overview.total_posts }}</div>
+            <div class="card-subtitle">posts</div>
+        </div>
+        {% for profile_name, metrics in comparison_metrics %}
+        <div class="comparison-item">
+            <h4>{{ profile_name }}</h4>
+            <div class="value" style="color: #10b981;">{{ metrics.overview.total_posts }}</div>
+            <div class="card-subtitle">posts</div>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const chartData = {{ chart_data | safe }};
+    
+    Chart.defaults.color = '#94a3b8';
+    Chart.defaults.borderColor = '#334155';
+    
+    const activityCtx = document.getElementById('activityChart');
+    if (activityCtx && chartData.posting_activity) {
+        new Chart(activityCtx, chartData.posting_activity);
+    }
+    
+    const engagementCtx = document.getElementById('engagementChart');
+    if (engagementCtx && chartData.engagement_trends) {
+        new Chart(engagementCtx, chartData.engagement_trends);
+    }
+    
+    const temporalCtx = document.getElementById('temporalChart');
+    if (temporalCtx && chartData.temporal_heatmap) {
+        new Chart(temporalCtx, chartData.temporal_heatmap);
+    }
+    
+    const mediaCtx = document.getElementById('mediaChart');
+    if (mediaCtx && chartData.media_distribution) {
+        new Chart(mediaCtx, chartData.media_distribution);
+    }
+    
+    {% if has_comparison %}
+    const comparisonCtx = document.getElementById('comparisonChart');
+    if (comparisonCtx && chartData.comparison) {
+        new Chart(comparisonCtx, chartData.comparison);
+    }
+    {% endif %}
+</script>
+{% endblock %}

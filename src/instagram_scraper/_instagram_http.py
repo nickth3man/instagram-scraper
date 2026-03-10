@@ -9,7 +9,6 @@ import time
 from random import SystemRandom
 from typing import cast
 
-import httpx
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -33,7 +32,7 @@ DEFAULT_POOL_MAXSIZE = 10
 DEFAULT_MAX_RETRIES = 3
 
 
-def build_instagram_session(
+def build_instagram_client(
     cookie_header: str,
     *,
     pool_connections: int = DEFAULT_POOL_CONNECTIONS,
@@ -82,6 +81,10 @@ def build_instagram_session(
     if csrftoken:
         session.headers["X-CSRFToken"] = csrftoken
     return session
+
+
+# Backward compatibility alias
+build_instagram_session = build_instagram_client
 
 
 def get_cookie_value(cookie_header: str, key: str) -> str | None:

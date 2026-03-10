@@ -336,21 +336,31 @@ def _write_outputs(
     _write_comments_csv(comments_csv_path, flat_comments)
 
 
-def main() -> None:
-    """Scrape a single Instagram profile and write the resulting files."""
-    args = _parse_args()
-    target_username = args.username
+def run_profile_scrape(*, username: str, output_dir: Path) -> dict[str, object]:
+    """Scrape a single Instagram profile and write the resulting files.
 
-    started_at = datetime.now(UTC)
-    output_dir = _get_output_dir(target_username)
+    Parameters
+    ----------
+    username : str
+        The Instagram username to scrape.
+    output_dir : Path
+        Directory to write output files.
+
+    Returns
+    -------
+    dict[str, object]
+        Summary of the scrape operation.
+
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
+    started_at = datetime.now(UTC)
 
     loader = _create_instaloader()
-    profile = Profile.from_username(loader.context, target_username)
+    profile = Profile.from_username(loader.context, username)
     all_posts, flat_comments, extraction_errors = _iter_post_rows(
         loader,
         profile,
-        target_username,
+        username,
     )
     finished_at = datetime.now(UTC)
     results = _ScrapeResults(
@@ -360,7 +370,7 @@ def main() -> None:
     )
 
     dataset = _create_dataset_dict(
-        target_username,
+        username,
         started_at,
         finished_at,
         results,
@@ -368,7 +378,7 @@ def main() -> None:
     _write_outputs(output_dir, dataset, all_posts, flat_comments)
 
     summary = _create_summary_dict(
-        target_username,
+        username,
         finished_at,
         output_dir,
         results,
@@ -376,6 +386,24 @@ def main() -> None:
     atomic_write_text(
         output_dir / "summary.json",
         json.dumps(summary, indent=2),
+    )
+
+    return {
+        "posts": len(all_posts),
+        "comments": len(flat_comments),
+        "errors": len(extraction_errors),
+    }
+
+
+def main() -> None:
+    """Scrape a single Instagram profile and write the resulting files."""
+    args = _parse_args()
+    target_username = args.username
+    output_dir = _get_output_dir(target_username)
+
+    result = run_profile_scrape(
+        username=target_username,
+        output_dir=output_dir,
     )
 
     sys.stdout.write(

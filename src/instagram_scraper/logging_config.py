@@ -165,15 +165,15 @@ class LogContext:
 
     Uses ContextVar for thread-safe, async-safe context propagation.
 
-    Examples
-    --------
-    >>> with LogContext(request_id="abc123"):
-    ...     logger.info("processing")  # includes request_id
-
     Attributes
     ----------
     **fields : str
         Key-value pairs to add to log context.
+
+    Examples
+    --------
+    >>> with LogContext(request_id="abc123"):
+    ...     logger.info("processing")  # includes request_id
 
     """
 

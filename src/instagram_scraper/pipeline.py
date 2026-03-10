@@ -6,8 +6,11 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from rich.console import Console
 
@@ -34,7 +37,14 @@ from instagram_scraper.providers.location import LocationScrapeProvider
 from instagram_scraper.providers.profile import ProfileScrapeProvider
 from instagram_scraper.providers.stories import StoriesProvider
 from instagram_scraper.providers.url import UrlScrapeProvider
-from instagram_scraper.storage_db import MetadataStore, create_store, record_target
+from instagram_scraper.storage_db import (
+    MetadataStore,
+    create_store,
+    record_target,
+)
+from instagram_scraper.sync import (
+    resolve_sync_targets,
+)
 
 STANDARD_ARTIFACTS = (
     "targets.ndjson",
@@ -55,12 +65,58 @@ def run_pipeline(mode: str, **kwargs: object) -> int:
         Process exit code `0` when the pipeline completes successfully.
 
     """
-    execute_pipeline(mode, **kwargs)
+    cancellation_event = kwargs.pop("cancellation_event", None)
+    progress_callback = kwargs.pop("progress_callback", None)
+    execute_pipeline(
+        mode,
+        cancellation_event=cast("HasIsSet | None", cancellation_event),
+        progress_callback=cast("Callable[[int, int], None] | None", progress_callback),
+        **kwargs,
+    )
     return 0
 
 
-def execute_pipeline(mode: str, **kwargs: object) -> RunSummary:
+def _check_cancellation(event: HasIsSet | None) -> None:
+    if event is not None and event.is_set():
+        raise PipelineCancelledError
+
+
+class HasIsSet(Protocol):
+    """Protocol for objects with an is_set method."""
+
+    def is_set(self) -> bool:
+        """Return whether cancellation has been requested."""
+        ...
+
+
+class PipelineCancelledError(Exception):
+    """Raised when the pipeline is cancelled via stop event."""
+
+    def __init__(self) -> None:
+        """Initialize the cancellation error with a standard message."""
+        super().__init__("Pipeline execution was cancelled")
+
+
+def execute_pipeline(
+    mode: str,
+    *,
+    cancellation_event: HasIsSet | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+    **kwargs: object,
+) -> RunSummary:
     """Execute a unified scrape mode and persist normalized artifacts.
+
+    Parameters
+    ----------
+    mode : str
+        The scrape mode to execute.
+    cancellation_event : object | None
+        An optional event-like object with an `is_set()` method that can
+        cancel the pipeline when set.
+    progress_callback : Callable[[int, int], None] | None
+        Optional callback(current, total) for progress updates.
+    **kwargs : object
+        Additional provider-specific arguments.
 
     Returns
     -------
@@ -76,6 +132,8 @@ def execute_pipeline(mode: str, **kwargs: object) -> RunSummary:
     descriptor = describe_mode_capability(mode)
     has_auth = bool(kwargs.get("has_auth"))
     ensure_mode_is_runnable(mode, has_auth=has_auth)
+
+    _check_cancellation(cancellation_event)
     output_dir = _resolve_output_dir(mode, kwargs)
     reset_output = bool(kwargs.get("reset_output"))
     artifact_paths = _prepare_output_dir(output_dir, reset_output=reset_output)
@@ -91,12 +149,21 @@ def execute_pipeline(mode: str, **kwargs: object) -> RunSummary:
             output_dir=str(output_dir),
         )
         targets = _resolve_targets(mode, kwargs)
+        _check_cancellation(cancellation_event)
         _write_targets(artifact_paths["targets"], targets, store)
+        if progress_callback:
+            progress_callback(10, 100)
+        _check_cancellation(cancellation_event)
         summary = _run_mode(mode, {**kwargs, "output_dir": output_dir})
         if not isinstance(summary, RunSummary):
             message = f"Provider for mode {mode} did not return RunSummary"
             raise TypeError(message)
+        if progress_callback:
+            progress_callback(80, 100)
+        _check_cancellation(cancellation_event)
         _populate_normalized_artifacts(mode, output_dir, artifact_paths)
+        if progress_callback:
+            progress_callback(90, 100)
         if bool(kwargs.get("raw_captures")):
             _record_raw_captures(mode, output_dir)
         normalized_summary = summary.model_copy(
@@ -112,6 +179,8 @@ def execute_pipeline(mode: str, **kwargs: object) -> RunSummary:
             artifact_paths["summary"],
             normalized_summary.model_dump_json(indent=2),
         )
+        if progress_callback:
+            progress_callback(100, 100)
         render_run_summary(Console(), normalized_summary)
         logger.info(
             "pipeline_completed",
@@ -332,55 +401,93 @@ def _profile_comment_record(
 
 
 def _resolve_targets(mode: str, kwargs: dict[str, object]) -> list[TargetRecord]:
-    targets: list[TargetRecord]
+    direct_targets = _resolve_direct_targets(mode, kwargs)
+    if direct_targets is not None:
+        return direct_targets
+    discovery_targets = _resolve_discovery_targets(mode, kwargs)
+    if discovery_targets is not None:
+        return discovery_targets
+    sync_targets = _resolve_sync_mode_targets(mode, kwargs)
+    if sync_targets is not None:
+        return sync_targets
+    message = f"Unsupported mode: {mode}"
+    raise ValueError(message)
+
+
+def _resolve_direct_targets(
+    mode: str,
+    kwargs: dict[str, object],
+) -> list[TargetRecord] | None:
     if mode == "profile":
-        targets = ProfileScrapeProvider.resolve_targets(
-            username=str(kwargs["username"]),
-        )
-    elif mode == "url":
-        targets = UrlScrapeProvider.resolve_targets(post_url=str(kwargs["post_url"]))
-    elif mode == "urls":
-        targets = UrlScrapeProvider.resolve_targets(
+        return ProfileScrapeProvider.resolve_targets(username=str(kwargs["username"]))
+    if mode == "url":
+        return UrlScrapeProvider.resolve_targets(post_url=str(kwargs["post_url"]))
+    if mode == "urls":
+        return UrlScrapeProvider.resolve_targets(
             input_path=_path_arg(kwargs, "input_path"),
         )
-    elif mode == "hashtag":
-        targets = HashtagScrapeProvider.resolve_targets(
+    return None
+
+
+def _resolve_discovery_targets(
+    mode: str,
+    kwargs: dict[str, object],
+) -> list[TargetRecord] | None:
+    resolver_map: dict[str, Callable[[], list[TargetRecord]]] = {
+        "hashtag": lambda: HashtagScrapeProvider.resolve_targets(
             hashtag=str(kwargs["hashtag"]),
             limit=_optional_int(kwargs.get("limit")),
-        )
-    elif mode == "location":
-        targets = LocationScrapeProvider.resolve_targets(
+        ),
+        "location": lambda: LocationScrapeProvider.resolve_targets(
             location=str(kwargs["location"]),
             limit=_optional_int(kwargs.get("limit")),
-        )
-    elif mode in {"followers", "following"}:
-        targets = FollowGraphProvider.resolve_targets(
+        ),
+        "stories": lambda: StoriesProvider.resolve_targets(
+            username=_optional_str(kwargs.get("username")),
+            hashtag=_optional_str(kwargs.get("hashtag")),
+            limit=_optional_int(kwargs.get("limit")),
+        ),
+    }
+    resolver = resolver_map.get(mode)
+    if resolver is not None:
+        return resolver()
+    if mode in {"followers", "following"}:
+        return FollowGraphProvider.resolve_targets(
             mode=mode,
             username=str(kwargs["username"]),
             limit=_optional_int(kwargs.get("limit")),
         )
-    elif mode == "likers":
-        targets = LikersProvider().resolve_targets(
+    interaction_provider = {
+        "likers": LikersProvider,
+        "commenters": CommentersProvider,
+    }.get(mode)
+    if interaction_provider is not None:
+        return interaction_provider().resolve_targets(
             username=str(kwargs["username"]),
             posts_limit=_optional_int(kwargs.get("posts_limit")),
             limit=_optional_int(kwargs.get("limit")),
         )
-    elif mode == "commenters":
-        targets = CommentersProvider().resolve_targets(
-            username=str(kwargs["username"]),
-            posts_limit=_optional_int(kwargs.get("posts_limit")),
-            limit=_optional_int(kwargs.get("limit")),
-        )
-    elif mode == "stories":
-        targets = StoriesProvider.resolve_targets(
-            username=_optional_str(kwargs.get("username")),
-            hashtag=_optional_str(kwargs.get("hashtag")),
-            limit=_optional_int(kwargs.get("limit")),
-        )
-    else:
-        message = f"Unsupported mode: {mode}"
-        raise ValueError(message)
-    return targets
+    return None
+
+
+def _resolve_sync_mode_targets(
+    mode: str,
+    kwargs: dict[str, object],
+) -> list[TargetRecord] | None:
+    sync_config = {
+        "sync:profile": ("profile", "username"),
+        "sync:hashtag": ("hashtag", "hashtag"),
+        "sync:location": ("location", "location"),
+    }
+    target_config = sync_config.get(mode)
+    if target_config is None:
+        return None
+    target_kind, kwarg_key = target_config
+    return resolve_sync_targets(
+        target_kind=target_kind,
+        target_value=str(kwargs[kwarg_key]),
+        mode=mode,
+    )
 
 
 def _run_mode(mode: str, kwargs: dict[str, object]) -> RunSummary:

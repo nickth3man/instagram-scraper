@@ -162,9 +162,7 @@ def _urls_from_payload(payload: object) -> list[str] | None:
     if isinstance(payload, dict):
         urls = cast("dict[str, object]", payload).get("urls")
         return [str(url) for url in urls] if isinstance(urls, list) else []
-    if isinstance(payload, list):
-        return [str(url) for url in payload]
-    return None
+    return [str(url) for url in payload] if isinstance(payload, list) else None
 
 
 def _runtime_kwargs(kwargs: dict[str, object]) -> _RuntimeKwargs:

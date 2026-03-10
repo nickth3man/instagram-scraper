@@ -9,8 +9,11 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "diskcache>=5.6.3",
+    "freesimplegui>=5.1.0",
     "httpx>=0.28.1",
     "instaloader>=4.15",
+    "jinja2>=3.1.6",
+    "pandas>=2.2.3",
     "pydantic>=2.11.9",
     "requests>=2.32.5",
     "rich>=14.1.0",
@@ -24,6 +27,7 @@ instagram-scraper = "instagram_scraper:main"
 instagram-scraper-profile = "instagram_scraper.scrape_instagram_profile:main"
 instagram-scraper-browser-dump = "instagram_scraper.scrape_instagram_from_browser_dump:main"
 instagram-scraper-download-videos = "instagram_scraper.download_instagram_videos:main"
+instagram-scraper-gui = "instagram_scraper.gui:main"
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]
@@ -32,8 +36,11 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "aiohttp>=3.11.13",
+    "openpyxl>=3.1.5",
+    "pyarrow>=18.0.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=0.25.3",
+    "pytest-mock>=3.15.1",
     "ruff>=0.15.4",
     "scalene>=2.1.4",
     "ty>=0.0.20",
@@ -47,6 +54,9 @@ target-version = "py313"
 preview = true
 select = ["ALL"]
 
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "ANN001",
@@ -55,14 +65,27 @@ select = ["ALL"]
     "ARG001",
     "CPY001",
     "D",
+    "DOC201",   # Missing Returns in docstring (test fixtures)
+    "DOC402",   # Missing Yields in docstring (test fixtures)
+    "DTZ001",   # Datetime without timezone (acceptable in tests)
     "EM101",
     "FBT002",
     "INP001",
     "PLR2004",
     "PLR6301",
+    "PLR0913",  # Too many arguments in test functions
+    "PLR0917",  # Too many positional arguments in test functions
     "PT018",
+    "RUF059",   # Unused unpacked variables (often intentional in tests)
+    "RUF069",   # Float equality comparisons (acceptable in tests)
     "S101",
+    "S108",     # /tmp paths in tests (acceptable in tests)
     "TRY003",
+    "PLC0415",  # Imports inside functions (needed for testing)
+    "PLC1901",  # Empty string comparisons (explicit is clearer in tests)
+    "PLC2701",  # Private name imports (needed for testing)
+    "SLF001",   # Private member access (needed for testing)
+    "TC003",    # Type checking imports (acceptable in tests)
 ]
 
 [tool.ty.rules]

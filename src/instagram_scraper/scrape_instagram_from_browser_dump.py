@@ -326,8 +326,8 @@ def run_url_scrape(
         Config(
             tool_dump_path=tool_dump_path,
             output_dir=output_dir,
-            resume=resume,
-            reset_output=reset_output,
+            should_resume=resume,
+            should_reset_output=reset_output,
             start_index=0,
             limit=None,
             checkpoint_every=checkpoint_every,

@@ -5,7 +5,8 @@
 This script helps identify performance bottlenecks in the Instagram scraper.
 Run with: uv run scalene scripts/profile_scraper.py -- <scraper_args>
 
-Examples:
+Examples
+--------
     # Profile profile scraper
     uv run scalene --html --outfile=profile.html \
         scripts/profile_scraper.py -- profile --username cnn

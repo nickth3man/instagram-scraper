@@ -14,6 +14,9 @@ SUPPORT_TIER_BY_MODE = {
     "following": "experimental",
     "likers": "experimental",
     "commenters": "experimental",
+    "sync:profile": "stable",
+    "sync:hashtag": "auth-required",
+    "sync:location": "auth-required",
 }
 
 AUTH_REQUIRED_MODES = {

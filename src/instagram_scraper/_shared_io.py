@@ -8,7 +8,9 @@ import json
 import os
 import time
 from contextlib import contextmanager
+from datetime import date, datetime
 from json import JSONDecodeError
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
@@ -141,7 +143,8 @@ def write_json_line(path: Path, payload: dict[str, object]) -> None:
     with locked_path(path), path.open("a", encoding="utf-8") as file:
         # NDJSON stores one JSON object per line, which makes large scrape outputs
         # easy to append to and stream later.
-        file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        serialized = json.dumps(payload, ensure_ascii=False, default=_json_default)
+        file.write(serialized + "\n")
         _flush_and_fsync(file)
 
 
