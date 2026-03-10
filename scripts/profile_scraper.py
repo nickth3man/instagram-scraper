@@ -26,13 +26,9 @@ from __future__ import annotations
 
 import sys
 
-from instagram_scraper.download_instagram_videos import (
-    main as download_main,
-)
-from instagram_scraper.scrape_instagram_from_browser_dump import (
-    main as browser_dump_main,
-)
-from instagram_scraper.scrape_instagram_profile import main as profile_main
+from instagram_scraper.workflows.browser_dump import main as browser_dump_main
+from instagram_scraper.workflows.profile import main as profile_main
+from instagram_scraper.workflows.video_downloads import main as download_main
 
 MIN_ARGS = 2
 

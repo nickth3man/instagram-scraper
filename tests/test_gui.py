@@ -6,8 +6,9 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from instagram_scraper.capabilities import AUTH_REQUIRED_MODES
-from instagram_scraper.gui import (
+from instagram_scraper.core.capabilities import AUTH_REQUIRED_MODES
+from instagram_scraper.core.pipeline import PipelineCancelledError
+from instagram_scraper.ui.gui import (
     EVENT_EXIT,
     EVENT_PROGRESS_UPDATE,
     EVENT_SCRAPE_ERROR,
@@ -22,7 +23,6 @@ from instagram_scraper.gui import (
     build_scrape_kwargs,
     get_shared_settings,
 )
-from instagram_scraper.pipeline import PipelineCancelledError
 
 
 class TestScraperWorker:
@@ -50,7 +50,7 @@ class TestScraperWorker:
         worker = ScraperWorker(mock_window)
 
         # Mock execute_pipeline to avoid actual execution
-        with patch("instagram_scraper.gui.execute_pipeline") as mock_execute:
+        with patch("instagram_scraper.ui.gui.execute_pipeline") as mock_execute:
             mock_execute.return_value = MagicMock(model_dump=lambda: {"posts": 1})
 
             worker.start_scrape("profile", {"username": "test"})
@@ -66,7 +66,7 @@ class TestScraperWorker:
         mock_window = MagicMock()
         worker = ScraperWorker(mock_window)
 
-        with patch("instagram_scraper.gui.execute_pipeline") as mock_execute:
+        with patch("instagram_scraper.ui.gui.execute_pipeline") as mock_execute:
             mock_execute.return_value = MagicMock(model_dump=lambda: {"posts": 1})
 
             worker.start_scrape("profile", {"username": "test"})
@@ -93,7 +93,7 @@ class TestBuildScrapeKwargs:
             "-PROFILE-USERNAME-": "",
         }
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error") as mock_popup:
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error") as mock_popup:
             result = build_scrape_kwargs("profile", values)
             assert result is None
             mock_popup.assert_called_once()
@@ -113,7 +113,7 @@ class TestBuildScrapeKwargs:
             "-PROFILE-USERNAME-": "testuser",
         }
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error"):
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error"):
             result = build_scrape_kwargs("profile", values)
 
         assert result is not None
@@ -134,7 +134,7 @@ class TestBuildScrapeKwargs:
             "-HASHTAG-HASHTAG-": "",
         }
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error") as mock_popup:
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error") as mock_popup:
             result = build_scrape_kwargs("hashtag", values)
             assert result is None
             mock_popup.assert_called_once()
@@ -162,7 +162,7 @@ class TestAuthValidation:
         """Test validation passes when cookie is provided."""
         values = {"-COOKIE-HEADER-": "sessionid=abc123"}
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error") as mock_popup:
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error") as mock_popup:
             result = _validate_auth_for_mode("hashtag", values)
             assert result is True
             mock_popup.assert_not_called()
@@ -171,7 +171,7 @@ class TestAuthValidation:
         """Test validation fails when cookie is missing for auth-required mode."""
         values = {"-COOKIE-HEADER-": ""}
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error") as mock_popup:
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error") as mock_popup:
             result = _validate_auth_for_mode("hashtag", values)
             assert result is False
             mock_popup.assert_called_once()
@@ -181,7 +181,7 @@ class TestAuthValidation:
         """Test validation passes for non-auth modes without cookie."""
         values = {"-COOKIE-HEADER-": ""}
 
-        with patch("instagram_scraper.gui.FreeSimpleGUI.popup_error") as mock_popup:
+        with patch("instagram_scraper.ui.gui.FreeSimpleGUI.popup_error") as mock_popup:
             result = _validate_auth_for_mode("profile", values)
             assert result is True
             mock_popup.assert_not_called()
@@ -365,7 +365,10 @@ class TestProcessEvent:
             "-PROFILE-USERNAME-": "testuser",
         }
 
-        with patch("instagram_scraper.gui._validate_auth_for_mode", return_value=True):
+        with patch(
+            "instagram_scraper.ui.gui._validate_auth_for_mode",
+            return_value=True,
+        ):
             result = _process_event(
                 mock_window,
                 mock_worker,
@@ -386,7 +389,7 @@ class TestErrorTypes:
 
         from instagram_scraper.exceptions import RateLimitError
 
-        with patch("instagram_scraper.gui.execute_pipeline") as mock_execute:
+        with patch("instagram_scraper.ui.gui.execute_pipeline") as mock_execute:
             mock_execute.side_effect = RateLimitError(
                 "Rate limited",
                 retry_after=60,
@@ -408,7 +411,7 @@ class TestErrorTypes:
 
         from instagram_scraper.exceptions import AuthenticationError
 
-        with patch("instagram_scraper.gui.execute_pipeline") as mock_execute:
+        with patch("instagram_scraper.ui.gui.execute_pipeline") as mock_execute:
             mock_execute.side_effect = AuthenticationError("Invalid cookie")
 
             worker.start_scrape("profile", {"username": "test"})
@@ -424,7 +427,7 @@ class TestErrorTypes:
         mock_window = MagicMock()
         worker = ScraperWorker(mock_window)
 
-        with patch("instagram_scraper.gui.execute_pipeline") as mock_execute:
+        with patch("instagram_scraper.ui.gui.execute_pipeline") as mock_execute:
             mock_execute.side_effect = PipelineCancelledError()
 
             worker.start_scrape("profile", {"username": "test"})

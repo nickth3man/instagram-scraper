@@ -5,7 +5,7 @@ from pathlib import Path
 
 from instagram_scraper.models import RunSummary, TargetRecord
 from instagram_scraper.providers.base import build_run_summary, build_target_record
-from instagram_scraper.scrape_instagram_profile import run_profile_scrape
+from instagram_scraper.workflows.profile import run_profile_scrape
 
 
 class ProfileScrapeProvider:

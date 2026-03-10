@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-async_http = importlib.import_module("instagram_scraper._async_http")
+async_http = importlib.import_module("instagram_scraper.infrastructure.async_http")
 
 
 class _DummyContext:
@@ -118,7 +118,10 @@ async def test_async_request_with_retry_retryable_failure(monkeypatch) -> None:
         base_retry_seconds=0.01,
     )
 
-    with patch("instagram_scraper._async_http.randomized_delay", AsyncMock()):
+    with patch(
+        "instagram_scraper.infrastructure.async_http.randomized_delay",
+        AsyncMock(),
+    ):
         response, error = await async_http.async_request_with_retry(
             mock_session,
             "https://example.com",
@@ -150,7 +153,10 @@ async def test_async_request_with_retry_exhausted(monkeypatch) -> None:
         base_retry_seconds=0.01,
     )
 
-    with patch("instagram_scraper._async_http.randomized_delay", AsyncMock()):
+    with patch(
+        "instagram_scraper.infrastructure.async_http.randomized_delay",
+        AsyncMock(),
+    ):
         response, error = await async_http.async_request_with_retry(
             mock_session,
             "https://example.com",

@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from instagram_scraper.pipeline import execute_pipeline
+from instagram_scraper.core.pipeline import execute_pipeline
 from instagram_scraper.providers.base import build_run_summary
-from instagram_scraper.storage_db import create_store
+from instagram_scraper.storage.database import create_store
 
 
 def test_execute_pipeline_writes_summary_and_targets(tmp_path: Path) -> None:
@@ -145,7 +145,7 @@ def test_urls_pipeline_preserves_existing_artifacts_when_resuming(
         return build_run_summary("urls", output_dir=Path(kwargs["output_dir"]))
 
     monkeypatch.setattr(
-        "instagram_scraper.pipeline.UrlScrapeProvider.run_urls",
+        "instagram_scraper.core.pipeline.UrlScrapeProvider.run_urls",
         fake_run_urls,
     )
     execute_pipeline(

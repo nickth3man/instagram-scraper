@@ -20,8 +20,8 @@ import instaloader
 from instaloader import Profile
 from instaloader.exceptions import InstaloaderException
 
-from ._shared_io import atomic_write_text
-from .logging_config import get_logger
+from instagram_scraper.infrastructure.files import atomic_write_text
+from instagram_scraper.infrastructure.logging import get_logger
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 

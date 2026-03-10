@@ -24,10 +24,10 @@ dependencies = [
 
 [project.scripts]
 instagram-scraper = "instagram_scraper:main"
-instagram-scraper-profile = "instagram_scraper.scrape_instagram_profile:main"
-instagram-scraper-browser-dump = "instagram_scraper.scrape_instagram_from_browser_dump:main"
-instagram-scraper-download-videos = "instagram_scraper.download_instagram_videos:main"
-instagram-scraper-gui = "instagram_scraper.gui:main"
+instagram-scraper-profile = "instagram_scraper.workflows.profile:main"
+instagram-scraper-browser-dump = "instagram_scraper.workflows.browser_dump:main"
+instagram-scraper-download-videos = "instagram_scraper.workflows.video_downloads:main"
+instagram-scraper-gui = "instagram_scraper.ui.gui:main"
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]

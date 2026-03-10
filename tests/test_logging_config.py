@@ -2,7 +2,7 @@ import io
 import json
 import logging
 
-from instagram_scraper import logging_config
+from instagram_scraper.infrastructure import logging as logging_config
 
 
 def test_configure_logging_returns_root_logger() -> None:

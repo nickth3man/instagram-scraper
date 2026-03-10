@@ -1,7 +1,7 @@
 from rich.console import Console
 
 from instagram_scraper.models import RunSummary
-from instagram_scraper.presentation import render_run_summary
+from instagram_scraper.ui.presentation import render_run_summary
 
 
 def test_render_run_summary_contains_mode_and_counts() -> None:

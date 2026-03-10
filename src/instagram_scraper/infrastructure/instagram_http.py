@@ -13,8 +13,14 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .config import RetryConfig  # noqa: TC001
-from .error_codes import RETRYABLE_STATUS_CODES, ErrorCode, error_code_from_status
+import instagram_scraper.config as _config
+from instagram_scraper.error_codes import (
+    RETRYABLE_STATUS_CODES,
+    ErrorCode,
+    error_code_from_status,
+)
+
+RetryConfig = _config.RetryConfig
 
 DEFAULT_USER_AGENT = os.getenv(
     "INSTAGRAM_USER_AGENT",

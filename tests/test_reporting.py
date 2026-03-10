@@ -318,6 +318,23 @@ class TestCalculateActivityMetrics:
         assert "2024-01" in result.monthly_posts
         assert "2024-02" in result.monthly_posts
 
+    def test_invalid_timestamps_are_skipped_consistently(self) -> None:
+        """Test invalid timestamps are ignored across temporal aggregations."""
+        records: list[dict[str, object]] = [
+            {"taken_at_utc": "2024-01-15T10:00:00Z", "like_count": 10},
+            {"taken_at_utc": "not-a-date", "like_count": 99},
+            {"taken_at_utc": None, "like_count": 42},
+        ]
+
+        engagement = calculate_engagement_metrics(records)
+        temporal = calculate_temporal_metrics(records)
+        activity = calculate_activity_metrics(records)
+
+        assert engagement.dates == ["2024-01-15"]
+        assert engagement.likes == [10]
+        assert temporal.hourly_distribution[10] == 1
+        assert activity.daily_posts == {"2024-01-15": 1}
+
 
 class TestCalculateAllMetrics:
     """Tests for calculate_all_metrics function."""

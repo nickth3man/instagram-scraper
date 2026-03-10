@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from instagram_scraper.cache import ScraperCache
+from instagram_scraper.storage.cache import ScraperCache
 
 
 def test_scraper_cache_round_trips_values(tmp_path: Path) -> None:

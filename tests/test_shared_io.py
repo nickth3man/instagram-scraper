@@ -3,7 +3,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-shared_io = importlib.import_module("instagram_scraper._shared_io")
+shared_io = importlib.import_module("instagram_scraper.infrastructure.files")
 
 
 def test_write_json_line_serializes_path_values(tmp_path: Path) -> None:

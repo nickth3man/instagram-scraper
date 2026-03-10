@@ -1,6 +1,9 @@
 import structlog
 
-from instagram_scraper.logging_utils import build_logger, configure_logging
+from instagram_scraper.infrastructure.structured_logging import (
+    build_logger,
+    configure_logging,
+)
 
 
 def test_build_logger_binds_run_context() -> None:

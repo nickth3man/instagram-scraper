@@ -1,10 +1,8 @@
 # Copyright (c) 2026
-"""Unified provider dispatch and artifact orchestration for scrape runs."""
+"""Unified provider dispatch and orchestration for scrape runs."""
 
 from __future__ import annotations
 
-import json
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
@@ -14,22 +12,23 @@ if TYPE_CHECKING:
 
 from rich.console import Console
 
-from instagram_scraper._shared_io import atomic_write_text, write_json_line
-from instagram_scraper.cache import ScraperCache
-from instagram_scraper.capabilities import (
+from instagram_scraper.core.capabilities import (
     describe_mode_capability,
     ensure_mode_is_runnable,
 )
-from instagram_scraper.logging_utils import build_logger, configure_logging
-from instagram_scraper.models import (
-    CommentRecord,
-    PostRecord,
-    RawCaptureRecord,
-    RunSummary,
-    TargetRecord,
-    UserRecord,
+from instagram_scraper.core.pipeline_artifacts import (
+    populate_normalized_artifacts,
+    prepare_output_dir,
+    record_raw_captures,
+    write_targets,
 )
-from instagram_scraper.presentation import render_run_summary
+from instagram_scraper.core.sync import resolve_sync_targets
+from instagram_scraper.infrastructure.files import atomic_write_text
+from instagram_scraper.infrastructure.structured_logging import (
+    build_logger,
+    configure_logging,
+)
+from instagram_scraper.models import RunSummary, TargetRecord
 from instagram_scraper.providers.follow_graph import FollowGraphProvider
 from instagram_scraper.providers.hashtag import HashtagScrapeProvider
 from instagram_scraper.providers.interactions import CommentersProvider, LikersProvider
@@ -37,23 +36,9 @@ from instagram_scraper.providers.location import LocationScrapeProvider
 from instagram_scraper.providers.profile import ProfileScrapeProvider
 from instagram_scraper.providers.stories import StoriesProvider
 from instagram_scraper.providers.url import UrlScrapeProvider
-from instagram_scraper.storage_db import (
-    MetadataStore,
-    create_store,
-    record_target,
-)
-from instagram_scraper.sync import (
-    resolve_sync_targets,
-)
-
-STANDARD_ARTIFACTS = (
-    "targets.ndjson",
-    "users.ndjson",
-    "posts.ndjson",
-    "comments.ndjson",
-    "stories.ndjson",
-    "errors.ndjson",
-)
+from instagram_scraper.storage.cache import ScraperCache
+from instagram_scraper.storage.database import create_store
+from instagram_scraper.ui.presentation import render_run_summary
 
 
 def run_pipeline(mode: str, **kwargs: object) -> int:
@@ -136,7 +121,7 @@ def execute_pipeline(
     _check_cancellation(cancellation_event)
     output_dir = _resolve_output_dir(mode, kwargs)
     reset_output = bool(kwargs.get("reset_output"))
-    artifact_paths = _prepare_output_dir(output_dir, reset_output=reset_output)
+    artifact_paths = prepare_output_dir(output_dir, reset_output=reset_output)
     store = create_store(output_dir / "state.sqlite3")
     run_id = str(kwargs.get("run_id") or f"{mode}-{uuid4().hex[:8]}")
     configure_logging()
@@ -150,7 +135,7 @@ def execute_pipeline(
         )
         targets = _resolve_targets(mode, kwargs)
         _check_cancellation(cancellation_event)
-        _write_targets(artifact_paths["targets"], targets, store)
+        write_targets(artifact_paths["targets"], targets, store)
         if progress_callback:
             progress_callback(10, 100)
         _check_cancellation(cancellation_event)
@@ -161,11 +146,11 @@ def execute_pipeline(
         if progress_callback:
             progress_callback(80, 100)
         _check_cancellation(cancellation_event)
-        _populate_normalized_artifacts(mode, output_dir, artifact_paths)
+        populate_normalized_artifacts(mode, output_dir, artifact_paths)
         if progress_callback:
             progress_callback(90, 100)
         if bool(kwargs.get("raw_captures")):
-            _record_raw_captures(mode, output_dir)
+            record_raw_captures(mode, output_dir)
         normalized_summary = summary.model_copy(
             update={
                 "run_id": run_id,
@@ -216,188 +201,6 @@ def _resolve_output_dir(mode: str, kwargs: dict[str, object]) -> Path:
         shortcode = _extract_output_leaf(str(kwargs["post_url"]), fallback="url")
         return Path("data") / shortcode
     return default_output_dir(mode)
-
-
-def _prepare_output_dir(
-    output_dir: Path,
-    *,
-    reset_output: bool,
-) -> dict[str, Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = output_dir / "summary.json"
-    if reset_output and summary_path.exists():
-        summary_path.unlink()
-    paths = {"summary": summary_path}
-    for artifact_name in STANDARD_ARTIFACTS:
-        path = output_dir / artifact_name
-        if reset_output and path.exists():
-            path.unlink()
-        if reset_output or not path.exists():
-            path.write_text("", encoding="utf-8")
-        paths[artifact_name.removesuffix(".ndjson")] = path
-    return paths
-
-
-def _write_targets(
-    path: Path,
-    targets: list[TargetRecord],
-    store: MetadataStore,
-) -> None:
-    for target in targets:
-        payload = target.model_dump(mode="json")
-        write_json_line(path, payload)
-        record_target(
-            store,
-            kind=target.target_kind,
-            normalized_key=f"{target.target_kind}:{target.target_value}",
-        )
-
-
-def _populate_normalized_artifacts(
-    mode: str,
-    output_dir: Path,
-    artifact_paths: dict[str, Path],
-) -> None:
-    if mode == "profile":
-        _populate_profile_artifacts(output_dir, artifact_paths)
-
-
-def _populate_profile_artifacts(
-    output_dir: Path,
-    artifact_paths: dict[str, Path],
-) -> None:
-    payload = _load_profile_dataset(output_dir)
-    if payload is None:
-        return
-    _write_profile_user(payload, artifact_paths["users"])
-    posts = payload.get("posts")
-    if not isinstance(posts, list):
-        return
-    for post in posts:
-        if not isinstance(post, dict):
-            continue
-        _write_profile_post_and_comments(
-            cast("dict[str, object]", post),
-            artifact_paths,
-        )
-
-
-def _record_raw_captures(mode: str, output_dir: Path) -> None:
-    if mode == "profile":
-        _record_profile_raw_capture(output_dir)
-
-
-def _record_profile_raw_capture(output_dir: Path) -> None:
-    dataset_path = output_dir / "instagram_dataset.json"
-    if not dataset_path.exists():
-        return
-    raw_dir = output_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    capture_path = raw_dir / dataset_path.name
-    shutil.copy2(dataset_path, capture_path)
-    write_json_line(
-        output_dir / "raw_captures.ndjson",
-        RawCaptureRecord(
-            provider="instaloader",
-            target=f"profile:{output_dir.name}",
-            path=capture_path,
-            source_endpoint="legacy_profile_dataset",
-        ).model_dump(mode="json"),
-    )
-
-
-def _load_profile_dataset(output_dir: Path) -> dict[str, object] | None:
-    dataset_path = output_dir / "instagram_dataset.json"
-    if not dataset_path.exists():
-        return None
-    payload = json.loads(dataset_path.read_text(encoding="utf-8"))
-    return payload if isinstance(payload, dict) else None
-
-
-def _write_profile_user(payload: dict[str, object], path: Path) -> None:
-    username = payload.get("target_profile")
-    if not isinstance(username, str):
-        return
-    write_json_line(
-        path,
-        UserRecord(
-            provider="instaloader",
-            target_kind="profile",
-            username=username,
-        ).model_dump(mode="json"),
-    )
-
-
-def _write_profile_post_and_comments(
-    post: dict[str, object],
-    artifact_paths: dict[str, Path],
-) -> None:
-    post_payload = _profile_post_record(post)
-    if post_payload is None:
-        return
-    write_json_line(artifact_paths["posts"], post_payload.model_dump(mode="json"))
-    comments = post.get("comments")
-    if not isinstance(comments, list):
-        return
-    for comment in comments:
-        if not isinstance(comment, dict):
-            continue
-        comment_payload = _profile_comment_record(
-            cast("dict[str, object]", comment),
-            post_payload.shortcode,
-        )
-        if comment_payload is None:
-            continue
-        write_json_line(
-            artifact_paths["comments"],
-            comment_payload.model_dump(mode="json"),
-        )
-
-
-def _profile_post_record(post: dict[str, object]) -> PostRecord | None:
-    shortcode = post.get("shortcode")
-    post_url = post.get("post_url")
-    if not isinstance(shortcode, str) or not isinstance(post_url, str):
-        return None
-    owner_username = post.get("owner_username")
-    taken_at_utc = post.get("date_utc")
-    return PostRecord.model_validate(
-        {
-            "provider": "instaloader",
-            "target_kind": "profile",
-            "shortcode": shortcode,
-            "post_url": post_url,
-            "owner_username": (
-                owner_username if isinstance(owner_username, str) else None
-            ),
-            "taken_at_utc": taken_at_utc if isinstance(taken_at_utc, str) else None,
-        },
-    )
-
-
-def _profile_comment_record(
-    comment: dict[str, object],
-    shortcode: str,
-) -> CommentRecord | None:
-    comment_id = comment.get("id")
-    if not isinstance(comment_id, str):
-        return None
-    owner_username = comment.get("owner_username")
-    text = comment.get("text")
-    taken_at_utc = comment.get("created_at_utc")
-    return CommentRecord.model_validate(
-        {
-            "provider": "instaloader",
-            "target_kind": "comment",
-            "comment_id": comment_id,
-            "post_shortcode": shortcode,
-            "owner_username": (
-                owner_username if isinstance(owner_username, str) else None
-            ),
-            "text": text if isinstance(text, str) else None,
-            "taken_at_utc": taken_at_utc if isinstance(taken_at_utc, str) else None,
-        },
-    )
 
 
 def _resolve_targets(mode: str, kwargs: dict[str, object]) -> list[TargetRecord]:

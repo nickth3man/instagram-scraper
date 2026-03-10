@@ -1,6 +1,6 @@
 import pytest
 
-from instagram_scraper.capabilities import (
+from instagram_scraper.core.capabilities import (
     describe_mode_capability,
     ensure_mode_is_runnable,
 )

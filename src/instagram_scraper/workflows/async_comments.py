@@ -6,8 +6,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, cast
 
-from ._async_http import async_json_payload, async_request_with_retry
-from .config import RetryConfig
+from instagram_scraper.config import RetryConfig
+from instagram_scraper.infrastructure.async_http import (
+    async_json_payload,
+    async_request_with_retry,
+)
 
 
 class _ResponseReleaser(Protocol):

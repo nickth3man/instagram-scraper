@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
-from instagram_scraper.logging_utils import build_logger, configure_logging
+from instagram_scraper.infrastructure.structured_logging import (
+    build_logger,
+    configure_logging,
+)
 from instagram_scraper.models import SyncSummary, TargetRecord
 from instagram_scraper.providers.base import build_target_record
-from instagram_scraper.storage_db import (
+from instagram_scraper.storage.database import (
     create_store,
     get_sync_state,
     update_sync_state,
@@ -23,7 +26,7 @@ if TYPE_CHECKING:
 
     from structlog.typing import FilteringBoundLogger
 
-    from instagram_scraper.storage_db import MetadataStore
+    from instagram_scraper.storage.database import MetadataStore
 
 
 PostPayload = dict[str, object]

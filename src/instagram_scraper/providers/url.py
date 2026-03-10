@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
 from instagram_scraper.providers.base import build_run_summary, build_target_record
-from instagram_scraper.scrape_instagram_from_browser_dump import run_url_scrape
+from instagram_scraper.workflows.browser_dump import run_url_scrape
 
 if TYPE_CHECKING:
     from instagram_scraper.models import RunSummary, TargetRecord

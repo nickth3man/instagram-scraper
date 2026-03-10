@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from instagram_scraper.scrape_instagram_from_browser_dump import run_url_scrape
+from instagram_scraper.workflows.browser_dump import run_url_scrape
 
 
 def test_run_url_scrape_rejects_non_instagram_urls(tmp_path: Path) -> None:

@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from instagram_scraper import async_comments
-from instagram_scraper.async_comments import (
+from instagram_scraper.workflows import async_comments
+from instagram_scraper.workflows.async_comments import (
     CommentBatch,
     CommentRow,
     fetch_comments_page,

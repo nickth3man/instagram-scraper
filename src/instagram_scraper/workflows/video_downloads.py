@@ -18,7 +18,13 @@ from typing import Literal, NotRequired, TypedDict, cast
 
 import requests
 
-from ._instagram_http import (
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    atomic_write_text,
+    ensure_csv_with_header,
+    load_json_dict,
+)
+from instagram_scraper.infrastructure.instagram_http import (
     RetryConfig,
     build_instagram_session,
     format_json_error,
@@ -26,13 +32,11 @@ from ._instagram_http import (
     randomized_delay,
     request_with_retry,
 )
-from ._shared_io import (
-    append_csv_row,
-    atomic_write_text,
-    ensure_csv_with_header,
-    load_json_dict,
+from instagram_scraper.infrastructure.logging import (
+    LogContext,
+    configure_logging,
+    get_logger,
 )
-from .logging_config import LogContext, configure_logging, get_logger
 
 logger = get_logger(__name__)
 
@@ -52,6 +56,33 @@ MIN_CONCURRENT = 1
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024  # 1 MB chunks
 DEFAULT_BASE_RETRY_SECONDS = 1.0
 INITIAL_BEST_AREA = -1
+COMMENTS_SNAPSHOT_HEADER = [
+    "media_id",
+    "shortcode",
+    "post_url",
+    "id",
+    "created_at_utc",
+    "text",
+    "comment_like_count",
+    "owner_username",
+    "owner_id",
+]
+VIDEO_INDEX_HEADER = [
+    "shortcode",
+    "media_id",
+    "post_url",
+    "position",
+    "video_url",
+    "file_path",
+    "file_size_bytes",
+]
+DOWNLOAD_ERROR_HEADER = ["shortcode", "media_id", "post_url", "stage", "error"]
+RESETTABLE_OUTPUT_FILENAMES = (
+    "videos_index.csv",
+    "videos_errors.csv",
+    "videos_checkpoint.json",
+    "videos_summary.json",
+)
 
 
 class _CheckpointState(TypedDict):
@@ -457,8 +488,7 @@ def _load_comments_by_shortcode(
     with comments_csv_path.open("r", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         for row in reader:
-            shortcode = row.get("shortcode")
-            if shortcode:
+            if shortcode := row.get("shortcode"):
                 # This turns one big CSV into a lookup table: shortcode -> comments.
                 by_shortcode[shortcode].append(dict(row))
     return by_shortcode
@@ -486,24 +516,12 @@ def _prepare_output(cfg: Config) -> _DownloadPaths:
     if cfg.should_reset_output:
         # Reset mode removes old bookkeeping files and keeps the directory layout
         # simple for the next run.
-        for path in (
-            index_csv,
-            errors_csv,
-            _checkpoint_file(cfg.output_dir),
-            cfg.output_dir / "videos_summary.json",
-        ):
+        for file_name in RESETTABLE_OUTPUT_FILENAMES:
+            path = cfg.output_dir / file_name
             if path.exists():
                 path.unlink()
-    index_header = [
-        "shortcode",
-        "media_id",
-        "post_url",
-        "position",
-        "video_url",
-        "file_path",
-        "file_size_bytes",
-    ]
-    error_header = ["shortcode", "media_id", "post_url", "stage", "error"]
+    index_header = list(VIDEO_INDEX_HEADER)
+    error_header = list(DOWNLOAD_ERROR_HEADER)
     _ensure_csv(index_csv, index_header, reset_output=cfg.should_reset_output)
     _ensure_csv(errors_csv, error_header, reset_output=cfg.should_reset_output)
     return {
@@ -555,20 +573,8 @@ def _initial_metrics(checkpoint: _CheckpointState | None) -> _DownloadMetrics:
 def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
     post = _post_target_from_row(row)
     with LogContext(shortcode=post.shortcode, media_id=post.media_id):
-        # Periodic checkpoint-progress logging:
-        # announce progress every checkpoint interval
-        if (
-            context.metrics["processed"] > 0
-            and context.metrics["processed"] % context.cfg.checkpoint_every == 0
-        ):
-            logger.info(
-                "checkpoint_progress",
-                extra={
-                    "processed": context.metrics["processed"],
-                    "completed_shortcodes": len(context.completed),
-                },
-            )
-        if context.cfg.should_resume and post.shortcode in context.completed:
+        _log_checkpoint_progress(context)
+        if _should_skip_completed_post(context, post):
             # Resume mode skips posts already marked complete in checkpoint.
             return
         if not _validate_post_target(context, post):
@@ -580,13 +586,10 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
         video_entries = _resolve_video_entries(context, post)
         if video_entries is None:
             return
-        caption_text = row.get("caption", "")
-        post_comments = context.comments_by_shortcode.get(post.shortcode, [])
-        post_dir = _write_post_payload(
+        _, post_comments, post_dir = _prepare_post_bundle(
             context,
-            post.shortcode,
-            caption_text,
-            post_comments,
+            row,
+            post,
         )
         downloaded_for_post = _download_entries(
             context,
@@ -594,19 +597,14 @@ def _process_post_row(context: _DownloadContext, row: dict[str, str]) -> None:
             video_entries,
             post_dir=post_dir,
         )
-        _write_post_metadata(
+        _write_post_bundle_metadata(
             post_dir,
-            _post_metadata(
-                post,
-                caption_text,
-                row.get("comment_count"),
-                len(post_comments),
-                downloaded_for_post,
-            ),
+            post,
+            row,
+            post_comments,
+            downloaded_for_post,
         )
-        _mark_completed(context.metrics, context.completed, post.shortcode)
-        _maybe_checkpoint(context)
-        _randomized_delay(context.cfg)
+        _finalize_post_processing(context, post.shortcode)
 
 
 def _post_target_from_row(row: dict[str, str]) -> _PostTarget:
@@ -703,24 +701,78 @@ def _write_comments_snapshot(
     post_dir: Path,
     post_comments: list[dict[str, str]],
 ) -> None:
-    comments_header = [
-        "media_id",
-        "shortcode",
-        "post_url",
-        "id",
-        "created_at_utc",
-        "text",
-        "comment_like_count",
-        "owner_username",
-        "owner_id",
-    ]
     comments_path = post_dir / "comments.csv"
     buffer = StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=comments_header)
+    writer = csv.DictWriter(buffer, fieldnames=COMMENTS_SNAPSHOT_HEADER)
     writer.writeheader()
     for comment_row in post_comments:
         writer.writerow(comment_row)
     _atomic_write_text(comments_path, buffer.getvalue())
+
+
+def _log_checkpoint_progress(context: _DownloadContext) -> None:
+    if (
+        context.metrics["processed"] > 0
+        and context.metrics["processed"] % context.cfg.checkpoint_every == 0
+    ):
+        logger.info(
+            "checkpoint_progress",
+            extra={
+                "processed": context.metrics["processed"],
+                "completed_shortcodes": len(context.completed),
+            },
+        )
+
+
+def _should_skip_completed_post(
+    context: _DownloadContext,
+    post: _PostTarget,
+) -> bool:
+    return context.cfg.should_resume and post.shortcode in context.completed
+
+
+def _prepare_post_bundle(
+    context: _DownloadContext,
+    row: dict[str, str],
+    post: _PostTarget,
+) -> tuple[str, list[dict[str, str]], Path]:
+    caption_text = row.get("caption", "")
+    post_comments = context.comments_by_shortcode.get(post.shortcode, [])
+    post_dir = _write_post_payload(
+        context,
+        post.shortcode,
+        caption_text,
+        post_comments,
+    )
+    return caption_text, post_comments, post_dir
+
+
+def _write_post_bundle_metadata(
+    post_dir: Path,
+    post: _PostTarget,
+    row: dict[str, str],
+    post_comments: list[dict[str, str]],
+    downloaded_for_post: list[dict[str, object]],
+) -> None:
+    _write_post_metadata(
+        post_dir,
+        _post_metadata(
+            post,
+            row.get("caption", ""),
+            row.get("comment_count"),
+            len(post_comments),
+            downloaded_for_post,
+        ),
+    )
+
+
+def _finalize_post_processing(
+    context: _DownloadContext,
+    shortcode: str,
+) -> None:
+    _mark_completed(context.metrics, context.completed, shortcode)
+    _maybe_checkpoint(context)
+    _randomized_delay(context.cfg)
 
 
 def _download_entries(

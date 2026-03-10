@@ -8,13 +8,15 @@ from typing import cast
 import click
 import typer
 
+from instagram_scraper.core.pipeline import run_pipeline
 from instagram_scraper.export_filters import ExportFilter, run_export
-from instagram_scraper.logging_config import LogContext, get_logger
-from instagram_scraper.logging_utils import build_logger as build_structlog_logger
-from instagram_scraper.logging_utils import (
+from instagram_scraper.infrastructure.logging import LogContext, get_logger
+from instagram_scraper.infrastructure.structured_logging import (
+    build_logger as build_structlog_logger,
+)
+from instagram_scraper.infrastructure.structured_logging import (
     configure_logging as configure_structlog_logging,
 )
-from instagram_scraper.pipeline import run_pipeline
 from instagram_scraper.reporting.generator import (
     generate_comparison_report,
     generate_report,

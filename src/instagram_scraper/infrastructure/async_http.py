@@ -17,8 +17,8 @@ except ImportError:
     aiohttp = cast("Any", None)
     AIOHTTP_AVAILABLE = False
 
-from .config import RetryConfig
-from .error_codes import ErrorCode, error_code_from_status
+from instagram_scraper.config import RetryConfig
+from instagram_scraper.error_codes import ErrorCode, error_code_from_status
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

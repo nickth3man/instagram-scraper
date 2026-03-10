@@ -19,7 +19,14 @@ if TYPE_CHECKING:
 
     import requests
 
-from ._instagram_http import (
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    atomic_write_text,
+    ensure_csv_with_header,
+    load_json_dict,
+    write_json_line,
+)
+from instagram_scraper.infrastructure.instagram_http import (
     RetryConfig,
     build_instagram_session,
     format_json_error,
@@ -27,16 +34,41 @@ from ._instagram_http import (
     randomized_delay,
     request_with_retry,
 )
-from ._shared_io import (
-    append_csv_row,
-    atomic_write_text,
-    ensure_csv_with_header,
-    load_json_dict,
-    write_json_line,
-)
 
 DEFAULT_DATA_DIR_FALLBACK = "data"
 DEFAULT_USERNAME_FALLBACK = "target_profile"
+POST_HEADER = [
+    "media_id",
+    "shortcode",
+    "post_url",
+    "type",
+    "taken_at_utc",
+    "caption",
+    "like_count",
+    "comment_count",
+]
+COMMENT_HEADER = [
+    "media_id",
+    "shortcode",
+    "post_url",
+    "id",
+    "created_at_utc",
+    "text",
+    "comment_like_count",
+    "owner_username",
+    "owner_id",
+]
+ERROR_HEADER = ["index", "post_url", "shortcode", "media_id", "stage", "error"]
+RESETTABLE_OUTPUT_NAMES = (
+    "posts.ndjson",
+    "comments.ndjson",
+    "errors.ndjson",
+    "posts.csv",
+    "comments.csv",
+    "errors.csv",
+    "summary.json",
+    "checkpoint.json",
+)
 
 
 class _CheckpointState(TypedDict):
@@ -222,43 +254,8 @@ def run(cfg: Config) -> dict[str, object]:
     # simple list and known total size.
     urls = _load_urls_from_tool_dump(cfg.tool_dump_path)
     output_paths = _prepare_output(cfg)
-    post_header = [
-        "media_id",
-        "shortcode",
-        "post_url",
-        "type",
-        "taken_at_utc",
-        "caption",
-        "like_count",
-        "comment_count",
-    ]
-    comment_header = [
-        "media_id",
-        "shortcode",
-        "post_url",
-        "id",
-        "created_at_utc",
-        "text",
-        "comment_like_count",
-        "owner_username",
-        "owner_id",
-    ]
-    error_header = ["index", "post_url", "shortcode", "media_id", "stage", "error"]
-    ensure_csv_with_header(
-        output_paths["posts_csv"],
-        post_header,
-        reset=cfg.should_reset_output,
-    )
-    ensure_csv_with_header(
-        output_paths["comments_csv"],
-        comment_header,
-        reset=cfg.should_reset_output,
-    )
-    ensure_csv_with_header(
-        output_paths["errors_csv"],
-        error_header,
-        reset=cfg.should_reset_output,
-    )
+    headers = _output_headers()
+    _ensure_output_csvs(output_paths, headers, reset_output=cfg.should_reset_output)
 
     # Resuming means "start from the saved checkpoint if there is one".
     checkpoint = _load_checkpoint(cfg.output_dir) if cfg.should_resume else None
@@ -268,11 +265,7 @@ def run(cfg: Config) -> dict[str, object]:
         cfg=cfg,
         session=session,
         output_paths=output_paths,
-        headers={
-            "posts": post_header,
-            "comments": comment_header,
-            "errors": error_header,
-        },
+        headers=headers,
         total_urls=len(urls),
         metrics=metrics,
     )
@@ -366,6 +359,37 @@ def _default_output_dir() -> Path:
 
 def _iso_utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _output_headers() -> dict[str, list[str]]:
+    return {
+        "posts": list(POST_HEADER),
+        "comments": list(COMMENT_HEADER),
+        "errors": list(ERROR_HEADER),
+    }
+
+
+def _ensure_output_csvs(
+    output_paths: _OutputPaths,
+    headers: dict[str, list[str]],
+    *,
+    reset_output: bool,
+) -> None:
+    ensure_csv_with_header(
+        output_paths["posts_csv"],
+        headers["posts"],
+        reset=reset_output,
+    )
+    ensure_csv_with_header(
+        output_paths["comments_csv"],
+        headers["comments"],
+        reset=reset_output,
+    )
+    ensure_csv_with_header(
+        output_paths["errors_csv"],
+        headers["errors"],
+        reset=reset_output,
+    )
 
 
 def _load_urls_from_tool_dump(path: Path) -> list[str]:
@@ -561,6 +585,58 @@ def _comment_rows(comments: list[object]) -> list[_CommentRow]:
     return rows
 
 
+def _record_processing_error(context: _RunContext, error_row: _ErrorRow) -> None:
+    _record_error(
+        error_row,
+        context.output_paths,
+        context.headers["errors"],
+    )
+    _increment_metric(context.metrics, "errors")
+
+
+def _checkpoint_next_index(context: _RunContext, index: int) -> None:
+    _save_checkpoint(
+        context.cfg.output_dir,
+        _checkpoint_state(
+            context.metrics,
+            context.total_urls,
+            next_index=index + 1,
+        ),
+    )
+
+
+def _write_post_artifact(context: _RunContext, post_row: _PostRow) -> None:
+    post_payload = _post_payload(post_row)
+    write_json_line(context.output_paths["posts_ndjson"], post_payload)
+    append_csv_row(
+        context.output_paths["posts_csv"],
+        context.headers["posts"],
+        post_payload,
+    )
+
+
+def _write_comment_artifact(
+    context: _RunContext,
+    media_id: str,
+    shortcode: str,
+    post_url: str,
+    comment: _CommentRow,
+) -> None:
+    row = {
+        "media_id": media_id,
+        "shortcode": shortcode,
+        "post_url": post_url,
+        **comment,
+    }
+    write_json_line(context.output_paths["comments_ndjson"], row)
+    append_csv_row(
+        context.output_paths["comments_csv"],
+        context.headers["comments"],
+        row,
+    )
+    _increment_metric(context.metrics, "comments")
+
+
 def _checkpoint_path(output_dir: Path) -> Path:
     return output_dir / "checkpoint.json"
 
@@ -579,16 +655,7 @@ def _prepare_output(cfg: Config) -> _OutputPaths:
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     if cfg.should_reset_output:
         # Reset mode throws away old artifacts so the next run starts cleanly.
-        for name in (
-            "posts.ndjson",
-            "comments.ndjson",
-            "errors.ndjson",
-            "posts.csv",
-            "comments.csv",
-            "errors.csv",
-            "summary.json",
-            "checkpoint.json",
-        ):
+        for name in RESETTABLE_OUTPUT_NAMES:
             path = cfg.output_dir / name
             if path.exists():
                 path.unlink()
@@ -631,25 +698,19 @@ def _process_url(context: _RunContext, index: int, post_url: str) -> None:
     if shortcode is None:
         # Save progress even for bad input so a rerun does not get stuck on the
         # same broken row forever.
-        error_row: _ErrorRow = {
-            "index": index,
-            "post_url": post_url,
-            "shortcode": None,
-            "media_id": None,
-            "stage": "extract_shortcode",
-            "error": "missing_shortcode",
-        }
-        _record_error(error_row, context.output_paths, context.headers["errors"])
-        _increment_metric(context.metrics, "errors")
-        _increment_metric(context.metrics, "processed")
-        _save_checkpoint(
-            context.cfg.output_dir,
-            _checkpoint_state(
-                context.metrics,
-                context.total_urls,
-                next_index=index + 1,
-            ),
+        _record_processing_error(
+            context,
+            {
+                "index": index,
+                "post_url": post_url,
+                "shortcode": None,
+                "media_id": None,
+                "stage": "extract_shortcode",
+                "error": "missing_shortcode",
+            },
         )
+        _increment_metric(context.metrics, "processed")
+        _checkpoint_next_index(context, index)
         return
     media_id, media_id_error = fetch_media_id(
         context.session,
@@ -658,39 +719,26 @@ def _process_url(context: _RunContext, index: int, post_url: str) -> None:
         context.cfg,
     )
     if media_id is None:
-        error_row: _ErrorRow = {
-            "index": index,
-            "post_url": post_url,
-            "shortcode": shortcode,
-            "media_id": None,
-            "stage": "fetch_media_id",
-            "error": media_id_error or "media_id_not_found",
-        }
-        _record_error(error_row, context.output_paths, context.headers["errors"])
-        _increment_metric(context.metrics, "errors")
-        _increment_metric(context.metrics, "processed")
-        _save_checkpoint(
-            context.cfg.output_dir,
-            _checkpoint_state(
-                context.metrics,
-                context.total_urls,
-                next_index=index + 1,
-            ),
+        _record_processing_error(
+            context,
+            {
+                "index": index,
+                "post_url": post_url,
+                "shortcode": shortcode,
+                "media_id": None,
+                "stage": "fetch_media_id",
+                "error": media_id_error or "media_id_not_found",
+            },
         )
+        _increment_metric(context.metrics, "processed")
+        _checkpoint_next_index(context, index)
         _randomized_delay(context.cfg)
         return
     _process_media(context, index, post_url, shortcode, media_id)
     _increment_metric(context.metrics, "processed")
     if context.metrics["processed"] % context.cfg.checkpoint_every == 0:
         # Periodic checkpoints make long runs resumable after crashes or rate limits.
-        _save_checkpoint(
-            context.cfg.output_dir,
-            _checkpoint_state(
-                context.metrics,
-                context.total_urls,
-                next_index=index + 1,
-            ),
-        )
+        _checkpoint_next_index(context, index)
     _randomized_delay(context.cfg)
 
 
@@ -707,48 +755,37 @@ def _process_media(
         context.cfg,
     )
     if media_info is None:
-        error_row: _ErrorRow = {
-            "index": index,
-            "post_url": post_url,
-            "shortcode": shortcode,
-            "media_id": media_id,
-            "stage": "fetch_media_info",
-            "error": media_info_error or "media_info_failed",
-        }
-        _record_error(error_row, context.output_paths, context.headers["errors"])
-        _increment_metric(context.metrics, "errors")
-        _save_checkpoint(
-            context.cfg.output_dir,
-            _checkpoint_state(
-                context.metrics,
-                context.total_urls,
-                next_index=index + 1,
-            ),
+        _record_processing_error(
+            context,
+            {
+                "index": index,
+                "post_url": post_url,
+                "shortcode": shortcode,
+                "media_id": media_id,
+                "stage": "fetch_media_info",
+                "error": media_info_error or "media_info_failed",
+            },
         )
+        _checkpoint_next_index(context, index)
         _randomized_delay(context.cfg)
         return
     post_row = _post_row(media_id, shortcode, post_url, media_info)
-    post_payload = _post_payload(post_row)
     # Write each record immediately so progress is durable even in long scrapes.
-    write_json_line(context.output_paths["posts_ndjson"], post_payload)
-    append_csv_row(
-        context.output_paths["posts_csv"],
-        context.headers["posts"],
-        post_payload,
-    )
+    _write_post_artifact(context, post_row)
     _increment_metric(context.metrics, "posts")
     comments_error = _write_comments(context, media_id, shortcode, post_url, post_row)
     if comments_error is not None:
-        error_row: _ErrorRow = {
-            "index": index,
-            "post_url": post_url,
-            "shortcode": shortcode,
-            "media_id": media_id,
-            "stage": "fetch_comments",
-            "error": comments_error,
-        }
-        _record_error(error_row, context.output_paths, context.headers["errors"])
-        _increment_metric(context.metrics, "errors")
+        _record_processing_error(
+            context,
+            {
+                "index": index,
+                "post_url": post_url,
+                "shortcode": shortcode,
+                "media_id": media_id,
+                "stage": "fetch_comments",
+                "error": comments_error,
+            },
+        )
 
 
 def _write_comments(
@@ -768,19 +805,7 @@ def _write_comments(
         context.cfg,
     )
     for comment in post_comments:
-        row = {
-            "media_id": media_id,
-            "shortcode": shortcode,
-            "post_url": post_url,
-            **comment,
-        }
-        write_json_line(context.output_paths["comments_ndjson"], row)
-        append_csv_row(
-            context.output_paths["comments_csv"],
-            context.headers["comments"],
-            row,
-        )
-        _increment_metric(context.metrics, "comments")
+        _write_comment_artifact(context, media_id, shortcode, post_url, comment)
     return comments_error
 
 

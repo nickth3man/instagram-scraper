@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from instagram_scraper.download_instagram_videos import (
+from instagram_scraper.workflows.video_downloads import (
     DEFAULT_DATA_DIR_FALLBACK,
     DEFAULT_USERNAME_FALLBACK,
     MEDIA_TYPE_CAROUSEL,
@@ -163,7 +163,7 @@ def mock_session(mock_response: MagicMock) -> MagicMock:
 # Test parse_args
 
 
-@patch("instagram_scraper.download_instagram_videos.argparse.ArgumentParser")
+@patch("instagram_scraper.workflows.video_downloads.argparse.ArgumentParser")
 def test_parse_args_defaults(mock_parser_class: MagicMock) -> None:
     """Test parse_args with default values."""
     mock_parser = MagicMock()
@@ -195,7 +195,7 @@ def test_parse_args_defaults(mock_parser_class: MagicMock) -> None:
 
 
 @patch.dict(os.environ, {"IG_COOKIE_HEADER": "sessionid=abc123"})
-@patch("instagram_scraper.download_instagram_videos.argparse.ArgumentParser")
+@patch("instagram_scraper.workflows.video_downloads.argparse.ArgumentParser")
 def test_parse_args_cookie_from_env(mock_parser_class: MagicMock) -> None:
     """Test parse_args reads cookie from environment."""
     mock_parser = MagicMock()
@@ -222,7 +222,7 @@ def test_parse_args_cookie_from_env(mock_parser_class: MagicMock) -> None:
     assert config.cookie_header == "sessionid=abc123"
 
 
-@patch("instagram_scraper.download_instagram_videos.argparse.ArgumentParser")
+@patch("instagram_scraper.workflows.video_downloads.argparse.ArgumentParser")
 def test_parse_args_validation(mock_parser_class: MagicMock) -> None:
     """Test parse_args validates minimum values."""
     mock_parser = MagicMock()
@@ -329,7 +329,7 @@ def test_download_video_file_request_failure(
 ) -> None:
     """Test handling request failure."""
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (None, "network_error")
 
@@ -356,7 +356,7 @@ def test_download_video_file_empty_response(
     mock_response.close = MagicMock()
 
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (mock_response, None)
 
@@ -383,7 +383,7 @@ def test_download_video_file_write_error(
     mock_response.close = MagicMock()
 
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (mock_response, None)
 
@@ -704,7 +704,7 @@ def test_load_comments_multiple_shortcodes(tmp_path: Path) -> None:
 
 def test_validate_post_target_valid() -> None:
     """Test validating valid post target."""
-    from instagram_scraper.download_instagram_videos import _PostTarget
+    from instagram_scraper.workflows.video_downloads import _PostTarget
 
     context = MagicMock()
     context.metrics = {"processed": 0, "errors": 0}
@@ -719,7 +719,7 @@ def test_validate_post_target_valid() -> None:
 
 def test_validate_post_target_missing_shortcode(tmp_path: Path) -> None:
     """Test validating post with missing shortcode."""
-    from instagram_scraper.download_instagram_videos import _PostTarget
+    from instagram_scraper.workflows.video_downloads import _PostTarget
 
     context = MagicMock()
     context.metrics = {"processed": 0, "errors": 0}
@@ -738,7 +738,7 @@ def test_validate_post_target_missing_shortcode(tmp_path: Path) -> None:
 
 def test_validate_post_target_missing_media_id(tmp_path: Path) -> None:
     """Test validating post with missing media_id."""
-    from instagram_scraper.download_instagram_videos import _PostTarget
+    from instagram_scraper.workflows.video_downloads import _PostTarget
 
     context = MagicMock()
     context.metrics = {"processed": 0, "errors": 0}
@@ -979,7 +979,7 @@ def test_checkpoint_state() -> None:
 
 def test_maybe_checkpoint_triggers(tmp_path: Path) -> None:
     """Test checkpoint triggers at interval."""
-    from instagram_scraper.download_instagram_videos import _DownloadContext
+    from instagram_scraper.workflows.video_downloads import _DownloadContext
 
     config = Config(
         output_dir=tmp_path,
@@ -1018,7 +1018,7 @@ def test_maybe_checkpoint_triggers(tmp_path: Path) -> None:
     )
 
     with patch(
-        "instagram_scraper.download_instagram_videos._save_checkpoint",
+        "instagram_scraper.workflows.video_downloads._save_checkpoint",
     ) as mock_save:
         _maybe_checkpoint(context)
         mock_save.assert_called_once()
@@ -1026,7 +1026,7 @@ def test_maybe_checkpoint_triggers(tmp_path: Path) -> None:
 
 def test_maybe_checkpoint_not_triggered(tmp_path: Path) -> None:
     """Test checkpoint doesn't trigger between intervals."""
-    from instagram_scraper.download_instagram_videos import _DownloadContext
+    from instagram_scraper.workflows.video_downloads import _DownloadContext
 
     config = Config(
         output_dir=tmp_path,
@@ -1065,7 +1065,7 @@ def test_maybe_checkpoint_not_triggered(tmp_path: Path) -> None:
     )
 
     with patch(
-        "instagram_scraper.download_instagram_videos._save_checkpoint",
+        "instagram_scraper.workflows.video_downloads._save_checkpoint",
     ) as mock_save:
         _maybe_checkpoint(context)
         mock_save.assert_not_called()
@@ -1105,7 +1105,7 @@ def test_post_target_from_row_missing_fields() -> None:
 
 def test_post_metadata() -> None:
     """Test creating post metadata."""
-    from instagram_scraper.download_instagram_videos import _PostTarget
+    from instagram_scraper.workflows.video_downloads import _PostTarget
 
     post = _PostTarget(
         shortcode="ABC123", media_id="12345", post_url="https://instagr.am/p/ABC123",
@@ -1166,7 +1166,7 @@ def test_write_comments_snapshot(tmp_path: Path) -> None:
 
 def test_index_row() -> None:
     """Test creating index row."""
-    from instagram_scraper.download_instagram_videos import (
+    from instagram_scraper.workflows.video_downloads import (
         _PostTarget,
         _VideoDownloadTask,
     )
@@ -1201,8 +1201,8 @@ def test_run_posts_csv_not_found(sample_config: Config) -> None:
         run(sample_config)
 
 
-@patch("instagram_scraper.download_instagram_videos._build_session")
-@patch("instagram_scraper.download_instagram_videos._fetch_media_info")
+@patch("instagram_scraper.workflows.video_downloads._build_session")
+@patch("instagram_scraper.workflows.video_downloads._fetch_media_info")
 def test_run_success(
     mock_fetch: MagicMock,
     mock_build_session: MagicMock,
@@ -1244,7 +1244,7 @@ def test_run_success(
         return True, None
 
     with patch(
-        "instagram_scraper.download_instagram_videos.download_video_file",
+        "instagram_scraper.workflows.video_downloads.download_video_file",
     ) as mock_download:
         mock_download.side_effect = mock_download_side_effect
 
@@ -1255,7 +1255,7 @@ def test_run_success(
         assert (config.output_dir / "videos_summary.json").exists()
 
 
-@patch("instagram_scraper.download_instagram_videos._build_session")
+@patch("instagram_scraper.workflows.video_downloads._build_session")
 def test_run_with_resume(
     mock_build_session: MagicMock,
     sample_posts_csv: Path,
@@ -1299,8 +1299,8 @@ def test_run_with_resume(
 # Test main
 
 
-@patch("instagram_scraper.download_instagram_videos.parse_args")
-@patch("instagram_scraper.download_instagram_videos.run")
+@patch("instagram_scraper.workflows.video_downloads.parse_args")
+@patch("instagram_scraper.workflows.video_downloads.run")
 def test_main_success(mock_run: MagicMock, mock_parse: MagicMock, capsys) -> None:
     """Test main function output."""
     mock_parse.return_value = Config(
@@ -1349,7 +1349,7 @@ def test_default_constants() -> None:
 
 def test_plan_video_downloads() -> None:
     """Test planning video downloads."""
-    from instagram_scraper.download_instagram_videos import _PostTarget
+    from instagram_scraper.workflows.video_downloads import _PostTarget
 
     post = _PostTarget(
         shortcode="ABC123", media_id="12345", post_url="https://instagr.am/p/ABC123",
@@ -1384,7 +1384,7 @@ def test_fetch_media_info_success(
     }
 
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (mock_response, None)
 
@@ -1401,7 +1401,7 @@ def test_fetch_media_info_request_failure(
 ) -> None:
     """Test fetching media info with request failure."""
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (None, "network_error")
 
@@ -1420,7 +1420,7 @@ def test_fetch_media_info_empty_items(
     mock_response.json.return_value = {"items": []}
 
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (mock_response, None)
 
@@ -1439,12 +1439,12 @@ def test_fetch_media_info_invalid_json(
     mock_response.json.side_effect = ValueError("Invalid JSON")
 
     with patch(
-        "instagram_scraper.download_instagram_videos._request_with_retry",
+        "instagram_scraper.workflows.video_downloads._request_with_retry",
     ) as mock_request:
         mock_request.return_value = (mock_response, None)
 
         with patch(
-            "instagram_scraper.download_instagram_videos._json_error",
+            "instagram_scraper.workflows.video_downloads._json_error",
         ) as mock_json_error:
             mock_json_error.return_value = "json_parse_error"
 
@@ -1498,7 +1498,7 @@ def test_default_output_dir(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_write_post_payload(tmp_path: Path) -> None:
     """Test writing post payload."""
-    from instagram_scraper.download_instagram_videos import _DownloadContext
+    from instagram_scraper.workflows.video_downloads import _DownloadContext
 
     context = _DownloadContext(
         cfg=MagicMock(),
@@ -1543,7 +1543,7 @@ def test_write_post_metadata(tmp_path: Path) -> None:
 
 def test_build_summary(tmp_path: Path) -> None:
     """Test building summary."""
-    from instagram_scraper.download_instagram_videos import _build_summary
+    from instagram_scraper.workflows.video_downloads import _build_summary
 
     paths = {
         "videos_root": tmp_path / "videos",

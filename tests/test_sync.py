@@ -3,16 +3,16 @@ from pathlib import Path
 
 import pytest
 
-from instagram_scraper.storage_db import (
-    create_store,
-    get_sync_state,
-    update_sync_state,
-)
-from instagram_scraper.sync import (
+from instagram_scraper.core.sync import (
     build_sync_target_key,
     filter_posts_by_date,
     get_latest_post_date,
     resolve_sync_targets,
+)
+from instagram_scraper.storage.database import (
+    create_store,
+    get_sync_state,
+    update_sync_state,
 )
 
 

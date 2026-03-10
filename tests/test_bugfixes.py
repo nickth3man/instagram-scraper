@@ -6,19 +6,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from instagram_scraper import download_instagram_videos as videos
-from instagram_scraper import scrape_instagram_profile as profile
+from instagram_scraper.workflows import profile
+from instagram_scraper.workflows import video_downloads as videos
 
 
 def _shared_io_module():
-    return importlib.import_module("instagram_scraper._shared_io")
+    return importlib.import_module("instagram_scraper.infrastructure.files")
 
 
 def test_no_hardcoded_specific_username_literals() -> None:
     # Guard against reintroducing a personal username that would break reuse.
     files = [
-        Path("src/instagram_scraper/scrape_instagram_from_browser_dump.py"),
-        Path("src/instagram_scraper/download_instagram_videos.py"),
+        Path("src/instagram_scraper/workflows/browser_dump.py"),
+        Path("src/instagram_scraper/workflows/video_downloads.py"),
     ]
     for file_path in files:
         assert "believerofbuckets" not in file_path.read_text(encoding="utf-8")
@@ -35,7 +35,7 @@ def test_browser_dump_defaults_respect_data_dir_env(
     monkeypatch.setattr(sys, "argv", ["prog"])
 
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump",
+        "instagram_scraper.workflows.browser_dump",
     )
     module = importlib.reload(module)
 
@@ -46,7 +46,7 @@ def test_browser_dump_defaults_respect_data_dir_env(
 
 def test_fetch_media_id_uses_shortcode_api(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump",
+        "instagram_scraper.workflows.browser_dump",
     )
 
     class FakeJsonResponse:
@@ -102,7 +102,7 @@ def test_checkpoint_saved_after_error_before_crash(
     tmp_path: Path,
 ) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump",
+        "instagram_scraper.workflows.browser_dump",
     )
 
     tool_dump = tmp_path / "tool_dump.json"
@@ -167,7 +167,7 @@ def test_process_url_missing_shortcode_records_error_and_checkpoints(
     tmp_path: Path,
 ) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump",
+        "instagram_scraper.workflows.browser_dump",
     )
 
     tool_dump = tmp_path / "tool_dump.json"
@@ -237,7 +237,7 @@ def test_process_url_media_info_failure_preserves_delay_and_checkpoint_policy(
     tmp_path: Path,
 ) -> None:
     module = importlib.import_module(
-        "instagram_scraper.scrape_instagram_from_browser_dump",
+        "instagram_scraper.workflows.browser_dump",
     )
 
     tool_dump = tmp_path / "tool_dump.json"

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from instagram_scraper.logging_config import LogContext, get_logger
+from instagram_scraper.infrastructure.logging import LogContext, get_logger
 from instagram_scraper.reporting.metrics import (
     ProfileMetrics,
     calculate_all_metrics,

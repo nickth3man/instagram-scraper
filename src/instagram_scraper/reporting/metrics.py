@@ -11,10 +11,21 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from operator import itemgetter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, overload
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+DAY_NAMES = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,7 +224,7 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
     try:
         # Handle both with and without timezone
         if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
+            value = f"{value[:-1]}+00:00"
         return datetime.fromisoformat(value)
     except (ValueError, TypeError):
         return None
@@ -235,6 +246,76 @@ def _get_week_identifier(dt: datetime) -> str:
     """
     iso_calendar = dt.isocalendar()
     return f"{iso_calendar[0]}-W{iso_calendar[1]:02d}"
+
+
+@overload
+def _increment_counter(counter: dict[str, int], key: str, amount: int = 1) -> None:
+    ...
+
+
+@overload
+def _increment_counter(counter: dict[int, int], key: int, amount: int = 1) -> None:
+    ...
+
+
+def _increment_counter(
+    counter: dict[str, int] | dict[int, int],
+    key: str | int,
+    amount: int = 1,
+) -> None:
+    """Increment a dictionary-backed counter in place."""
+    if isinstance(key, str):
+        string_counter = cast("dict[str, int]", counter)
+        string_counter[key] = string_counter.get(key, 0) + amount
+        return
+    int_counter = cast("dict[int, int]", counter)
+    int_counter[key] = int_counter.get(key, 0) + amount
+
+
+def _iter_records_with_datetime(
+    records: list[dict[str, object]],
+) -> list[tuple[dict[str, object], datetime]]:
+    """Return records paired with successfully parsed timestamps.
+
+    Returns
+    -------
+    list[tuple[dict[str, object], datetime]]
+        Records with valid parsed datetimes.
+
+    """
+    dated_records: list[tuple[dict[str, object], datetime]] = []
+    for record in records:
+        taken_at = record.get("taken_at_utc")
+        if not isinstance(taken_at, str):
+            continue
+        dt = _parse_iso_datetime(taken_at)
+        if dt is not None:
+            dated_records.append((record, dt))
+    return dated_records
+
+
+def _empty_hourly_distribution() -> dict[int, int]:
+    """Build a zeroed 24-hour distribution.
+
+    Returns
+    -------
+    dict[int, int]
+        Hour keys 0-23 with zero counts.
+
+    """
+    return dict.fromkeys(range(24), 0)
+
+
+def _empty_daily_distribution() -> dict[str, int]:
+    """Build a zeroed day-of-week distribution.
+
+    Returns
+    -------
+    dict[str, int]
+        Day-name keys with zero counts.
+
+    """
+    return dict.fromkeys(DAY_NAMES, 0)
 
 
 def _extract_hashtags(text: str | None) -> list[str]:
@@ -384,13 +465,13 @@ def calculate_overview_metrics(
             unique_users.add(owner)
 
         taken_at = record.get("taken_at_utc")
-        if taken_at and isinstance(taken_at, str):
+        if isinstance(taken_at, str):
             dt = _parse_iso_datetime(taken_at)
-            if dt:
+            if dt is not None:
                 dates.append(dt)
 
-    date_range_start = min(dates) if dates else None
-    date_range_end = max(dates) if dates else None
+    date_range_start = min(dates, default=None)
+    date_range_end = max(dates, default=None)
 
     avg_likes_per_post = totals["likes"] / total_posts if total_posts else 0.0
     avg_comments_per_post = totals["comments"] / total_posts if total_posts else 0.0
@@ -427,20 +508,18 @@ def calculate_engagement_metrics(
     daily_likes: dict[str, int] = {}
     daily_comments: dict[str, int] = {}
 
-    for record in records:
-        taken_at = record.get("taken_at_utc")
-        if not taken_at or not isinstance(taken_at, str):
-            continue
-        dt = _parse_iso_datetime(taken_at)
-        if not dt:
-            continue
+    for record, dt in _iter_records_with_datetime(records):
         date_str = dt.strftime("%Y-%m-%d")
 
-        daily_likes[date_str] = daily_likes.get(date_str, 0) + _extract_int(
-            record.get("like_count", 0),
+        _increment_counter(
+            daily_likes,
+            date_str,
+            _extract_int(record.get("like_count", 0)),
         )
-        daily_comments[date_str] = daily_comments.get(date_str, 0) + _extract_int(
-            record.get("comment_count", 0),
+        _increment_counter(
+            daily_comments,
+            date_str,
+            _extract_int(record.get("comment_count", 0)),
         )
 
     dates = sorted(daily_likes.keys())
@@ -474,30 +553,12 @@ def calculate_temporal_metrics(
         Calculated temporal metrics.
 
     """
-    hourly_distribution = dict.fromkeys(range(24), 0)
-    daily_distribution = {
-        "Monday": 0,
-        "Tuesday": 0,
-        "Wednesday": 0,
-        "Thursday": 0,
-        "Friday": 0,
-        "Saturday": 0,
-        "Sunday": 0,
-    }
+    hourly_distribution = _empty_hourly_distribution()
+    daily_distribution = _empty_daily_distribution()
 
-    for record in records:
-        taken_at = record.get("taken_at_utc")
-        if not taken_at or not isinstance(taken_at, str):
-            continue
-        dt = _parse_iso_datetime(taken_at)
-        if not dt:
-            continue
-
-        hour = dt.hour
-        hourly_distribution[hour] = hourly_distribution.get(hour, 0) + 1
-
-        day_name = dt.strftime("%A")
-        daily_distribution[day_name] = daily_distribution.get(day_name, 0) + 1
+    for _, dt in _iter_records_with_datetime(records):
+        _increment_counter(hourly_distribution, dt.hour)
+        _increment_counter(daily_distribution, dt.strftime("%A"))
 
     # Find best posting hour and day
     best_posting_hour = max(hourly_distribution, key=lambda k: hourly_distribution[k])
@@ -537,11 +598,10 @@ def calculate_content_metrics(
         # Extract hashtags from caption
         caption = record.get("caption")
         if caption and isinstance(caption, str):
-            hashtags = _extract_hashtags(caption)
-            if hashtags:
+            if hashtags := _extract_hashtags(caption):
                 posts_with_hashtags += 1
                 for tag in hashtags:
-                    hashtag_counts[tag] = hashtag_counts.get(tag, 0) + 1
+                    _increment_counter(hashtag_counts, tag)
             # Count mentions
             mentions = _extract_mentions(caption)
             if mentions:
@@ -553,12 +613,12 @@ def calculate_content_metrics(
         # Media type detection
         media_type = record.get("media_type")
         if media_type and isinstance(media_type, str):
-            media_types[media_type] = media_types.get(media_type, 0) + 1
+            _increment_counter(media_types, media_type)
         elif record.get("is_video") is True:
-            media_types["video"] = media_types.get("video", 0) + 1
+            _increment_counter(media_types, "video")
         else:
             # Assume image if not specified
-            media_types["image"] = media_types.get("image", 0) + 1
+            _increment_counter(media_types, "image")
 
     # Top hashtags (sorted by count)
     top_hashtags = sorted(hashtag_counts.items(), key=itemgetter(1), reverse=True)
@@ -596,22 +656,15 @@ def calculate_activity_metrics(
     weekly_posts: dict[str, int] = {}
     monthly_posts: dict[str, int] = {}
 
-    for record in records:
-        taken_at = record.get("taken_at_utc")
-        if not taken_at or not isinstance(taken_at, str):
-            continue
-        dt = _parse_iso_datetime(taken_at)
-        if not dt:
-            continue
-
+    for _, dt in _iter_records_with_datetime(records):
         date_str = dt.strftime("%Y-%m-%d")
-        daily_posts[date_str] = daily_posts.get(date_str, 0) + 1
+        _increment_counter(daily_posts, date_str)
 
         week_id = _get_week_identifier(dt)
-        weekly_posts[week_id] = weekly_posts.get(week_id, 0) + 1
+        _increment_counter(weekly_posts, week_id)
 
         month_str = dt.strftime("%Y-%m")
-        monthly_posts[month_str] = monthly_posts.get(month_str, 0) + 1
+        _increment_counter(monthly_posts, month_str)
 
     return ActivityMetrics(
         daily_posts=daily_posts,

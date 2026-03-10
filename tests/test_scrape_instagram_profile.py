@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from instaloader.exceptions import InstaloaderException
 
-from instagram_scraper.scrape_instagram_profile import (
+from instagram_scraper.workflows.profile import (
     COMMENTS_CSV_FIELDNAMES,
     POSTS_CSV_FIELDNAMES,
     _collect_comments,
@@ -282,7 +282,7 @@ def test_iter_post_rows_quota_warning(
     mock_instaloader.context.quotamessages = ["Rate limit warning"]
 
     with patch(
-        "instagram_scraper.scrape_instagram_profile.get_logger",
+        "instagram_scraper.workflows.profile.get_logger",
     ) as mock_get_logger:
         mock_logger = MagicMock()
         mock_get_logger.return_value = mock_logger
@@ -499,8 +499,8 @@ def test_write_outputs(tmp_path: Path) -> None:
 # Test run_profile_scrape
 
 
-@patch("instagram_scraper.scrape_instagram_profile.Profile")
-@patch("instagram_scraper.scrape_instagram_profile._create_instaloader")
+@patch("instagram_scraper.workflows.profile.Profile")
+@patch("instagram_scraper.workflows.profile._create_instaloader")
 def test_run_profile_scrape_success(
     mock_create_loader: MagicMock,
     mock_profile_class: MagicMock,
@@ -529,8 +529,8 @@ def test_run_profile_scrape_success(
 # Test main
 
 
-@patch("instagram_scraper.scrape_instagram_profile.run_profile_scrape")
-@patch("instagram_scraper.scrape_instagram_profile._parse_args")
+@patch("instagram_scraper.workflows.profile.run_profile_scrape")
+@patch("instagram_scraper.workflows.profile._parse_args")
 def test_main_success(
     mock_parse_args: MagicMock,
     mock_run: MagicMock,
@@ -549,7 +549,7 @@ def test_main_success(
     assert output["comments"] == 10
 
 
-@patch("instagram_scraper.scrape_instagram_profile._parse_args")
+@patch("instagram_scraper.workflows.profile._parse_args")
 def test_main_creates_output_dir(
     mock_parse_args: MagicMock,
     tmp_path: Path,
@@ -559,11 +559,11 @@ def test_main_creates_output_dir(
     mock_parse_args.return_value.username = "testuser"
 
     with patch(
-        "instagram_scraper.scrape_instagram_profile._get_output_dir",
+        "instagram_scraper.workflows.profile._get_output_dir",
     ) as mock_get_dir:
         mock_get_dir.return_value = output_dir
         with patch(
-            "instagram_scraper.scrape_instagram_profile.run_profile_scrape",
+            "instagram_scraper.workflows.profile.run_profile_scrape",
         ) as mock_run:
             mock_run.return_value = {"posts": 1, "comments": 0, "errors": 0}
             main()

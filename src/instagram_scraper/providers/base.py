@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from instagram_scraper.capabilities import describe_mode_capability
+from instagram_scraper.core.capabilities import describe_mode_capability
 from instagram_scraper.models import ModeDescriptor, RunSummary, TargetRecord
 
 
