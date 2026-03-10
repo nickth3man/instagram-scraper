@@ -180,9 +180,7 @@ def _build_sync_request(kwargs: dict[str, object]) -> _SyncRequest:
         ),
     )
     provider_kwargs = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in runtime_keys
+        key: value for key, value in kwargs.items() if key not in runtime_keys
     }
     return _SyncRequest(
         target_kind=_required_str(kwargs, "target_kind"),

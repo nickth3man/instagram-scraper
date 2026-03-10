@@ -102,4 +102,3 @@ error-on-warning = true
 respect-type-ignore-comments = false
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]

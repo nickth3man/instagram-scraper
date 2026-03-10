@@ -46,8 +46,7 @@ EVENT_PROGRESS_UPDATE = "-PROGRESS-UPDATE-"
 
 
 class _ElementWithUpdate(Protocol):
-    def update(self, value: object | None = None, **kwargs: object) -> object:
-        ...
+    def update(self, value: object | None = None, **kwargs: object) -> object: ...
 
 
 class _ProgressBarElement(Protocol):
@@ -55,8 +54,7 @@ class _ProgressBarElement(Protocol):
         self,
         current_count: int,
         maximum: int | None = None,
-    ) -> object:
-        ...
+    ) -> object: ...
 
 
 class _PasswordInputElement(_ElementWithUpdate, Protocol):
@@ -84,23 +82,15 @@ def _set_status(window: FreeSimpleGUI.Window, text: str, *, color: str) -> None:
 
 
 class ScraperWorker:
-    """Background worker for running scrapes without blocking the GUI."""
+    """Run scrapes in a background thread."""
 
     def __init__(self, window: FreeSimpleGUI.Window) -> None:
-        """Initialize the scraper worker.
-
-        Parameters
-        ----------
-        window : sg.Window
-            The main GUI window for event communication.
-
-        """
         self.window = window
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start_scrape(self, mode: str, kwargs: dict[str, Any]) -> None:
-        """Start a scrape operation in a background thread."""
+        """Start a scrape in a background thread."""
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._scrape_thread,
@@ -110,8 +100,6 @@ class ScraperWorker:
         self._thread.start()
 
     def _scrape_thread(self, mode: str, kwargs: dict[str, Any]) -> None:
-        """Thread target that runs the scrape and reports results."""
-
         def progress_callback(current: int, total: int) -> None:
             self.window.write_event_value(EVENT_PROGRESS_UPDATE, (current, total))
 
@@ -188,13 +176,11 @@ class ScraperWorker:
         self._stop_event.set()
 
     def is_running(self) -> bool:
-        """Check if a scrape is currently running.
+        """Return whether the worker thread is active.
 
         Returns
         -------
-        bool
-            True if a scrape thread is active, False otherwise.
-
+        bool: True when the background thread is still running.
         """
         return self._thread is not None and self._thread.is_alive()
 
@@ -203,9 +189,7 @@ class ScraperWorker:
 
         Returns
         -------
-        bool
-            True when the worker has stopped by the end of the wait.
-
+        bool: True when the worker has finished before the timeout.
         """
         if self._thread is None:
             return True
@@ -214,13 +198,11 @@ class ScraperWorker:
 
 
 def create_main_window() -> FreeSimpleGUI.Window:
-    """Create and return the main application window.
+    """Create the main application window.
 
     Returns
     -------
-    sg.Window
-        The main application window.
-
+    FreeSimpleGUI.Window: Configured desktop window for the GUI loop.
     """
     return gui_layout.create_main_window(
         start_event_prefix=EVENT_START_SCRAPE,
@@ -230,13 +212,11 @@ def create_main_window() -> FreeSimpleGUI.Window:
 
 
 def get_shared_settings(values: dict[str, Any]) -> dict[str, Any]:
-    """Extract shared settings from form values.
+    """Extract shared settings from GUI form values.
 
     Returns
     -------
-    dict[str, Any]
-        Dictionary of shared settings.
-
+    dict[str, Any]: Shared scrape settings derived from the current form values.
     """
     settings: dict[str, Any] = {}
 
@@ -288,14 +268,6 @@ def get_shared_settings(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def _extract_int(values: dict[str, Any], key: str, default: int) -> int:
-    """Extract an integer from values dictionary.
-
-    Returns
-    -------
-    int
-        The extracted integer.
-
-    """
     val_str = values.get(key, str(default)).strip()
     with contextlib.suppress(ValueError):
         return int(val_str) if val_str else default
@@ -303,14 +275,6 @@ def _extract_int(values: dict[str, Any], key: str, default: int) -> int:
 
 
 def _extract_float(values: dict[str, Any], key: str, default: float) -> float:
-    """Extract a float from values dictionary.
-
-    Returns
-    -------
-    float
-        The extracted float.
-
-    """
     val_str = values.get(key, str(default)).strip()
     with contextlib.suppress(ValueError):
         return float(val_str) if val_str else default
@@ -318,18 +282,11 @@ def _extract_float(values: dict[str, Any], key: str, default: float) -> float:
 
 
 def build_scraper_config(values: dict[str, Any]) -> ScraperConfig:
-    """Build a ScraperConfig from GUI form values.
-
-    Parameters
-    ----------
-    values : dict[str, Any]
-        Form values from the GUI.
+    """Build a `ScraperConfig` from GUI form values.
 
     Returns
     -------
-    ScraperConfig
-        The built configuration object.
-
+    ScraperConfig: Normalized scraper configuration for the GUI submission.
     """
     output_dir = Path(values.get("-OUTPUT-DIR-", "data") or "data")
 
@@ -358,34 +315,22 @@ def build_scraper_config(values: dict[str, Any]) -> ScraperConfig:
     )
 
 
-def build_scrape_kwargs(
-    mode: str,
-    values: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Build kwargs for the specified scrape mode from form values.
-
-    Parameters
-    ----------
-    mode : str
-        The scrape mode to configure.
-    values : dict[str, Any]
-        Form values from the GUI.
+def build_scrape_kwargs(mode: str, values: dict[str, Any]) -> dict[str, Any] | None:
+    """Build scrape kwargs from shared and mode-specific settings.
 
     Returns
     -------
-    dict[str, Any] | None
-        Configured kwargs or None if validation failed.
-
+    dict[str, Any] | None: Mode-ready kwargs, or `None` when validation fails.
     """
     kwargs = get_shared_settings(values)
 
     try:
         mode_kwargs = get_scrape_mode_definition(mode).gui_builder(values)
-    except ValueError:
-        FreeSimpleGUI.popup_error(f"Unknown scrape mode: {mode}")
-        return None
     except ModeInputError as exc:
         FreeSimpleGUI.popup_error(str(exc))
+        return None
+    except ValueError:
+        FreeSimpleGUI.popup_error(f"Unknown scrape mode: {mode}")
         return None
 
     kwargs.update(mode_kwargs)
@@ -398,7 +343,6 @@ def update_ui_for_scrape_start(window: FreeSimpleGUI.Window) -> None:
     _element(window, EVENT_STOP_SCRAPE).update(disabled=False)
     _progress_bar(window).update_bar(0, 100)
 
-    # Disable all start buttons
     for mode in gui_layout.SCRAPE_MODES:
         _element(window, f"{EVENT_START_SCRAPE}{mode}").update(disabled=True)
 
@@ -414,12 +358,10 @@ def update_ui_for_scrape_end(
     _set_status(window, status_text, color=status_color)
     _element(window, EVENT_STOP_SCRAPE).update(disabled=True)
 
-    # Re-enable all start buttons
     for mode in gui_layout.SCRAPE_MODES:
         _element(window, f"{EVENT_START_SCRAPE}{mode}").update(disabled=False)
 
 
-# Constants
 PROGRESS_TUPLE_LEN = 2
 
 
@@ -427,7 +369,6 @@ def _handle_scrape_complete(
     window: FreeSimpleGUI.Window,
     result: dict[str, Any],
 ) -> None:
-    """Handle scrape completion event."""
     if result["success"]:
         summary = result.get("summary", {})
         _append_log(window, "")
@@ -445,7 +386,6 @@ def _handle_scrape_error(
     window: FreeSimpleGUI.Window,
     result: dict[str, Any],
 ) -> None:
-    """Handle scrape error event."""
     error_type = result.get("error_type", "unknown")
     if result.get("cancelled"):
         _append_log(window, "")
@@ -491,10 +431,9 @@ def _validate_auth_for_mode(mode: str, values: dict[str, Any]) -> bool:
 def _process_start_scrape(
     window: FreeSimpleGUI.Window,
     worker: ScraperWorker,
-    event: str,
+    event: object,
     values: dict[str, Any],
 ) -> None:
-    """Handle start scrape button click."""
     if not isinstance(event, str):
         return
     if not event.startswith(EVENT_START_SCRAPE):
@@ -513,24 +452,22 @@ def _process_start_scrape(
 
 def _handle_scrape_events(
     window: FreeSimpleGUI.Window,
-    event: str,
+    event: object,
     values: dict[str, Any],
 ) -> None:
-    """Handle scrape-related events."""
     if event == EVENT_SCRAPE_COMPLETE:
-        _handle_scrape_complete(window, values[event])
+        _handle_scrape_complete(window, values[EVENT_SCRAPE_COMPLETE])
     elif event == EVENT_SCRAPE_ERROR:
-        _handle_scrape_error(window, values[event])
+        _handle_scrape_error(window, values[EVENT_SCRAPE_ERROR])
     elif event == EVENT_PROGRESS_UPDATE:
         _handle_progress_update(window, values)
 
 
 def _handle_ui_events(
     window: FreeSimpleGUI.Window,
-    event: str,
+    event: object,
     values: dict[str, Any],
 ) -> None:
-    """Handle UI-related events."""
     match event:
         case "-SHOW-ADVANCED-":
             _element(window, "-ADVANCED-SETTINGS-COL-").update(
@@ -554,17 +491,9 @@ def _handle_ui_events(
 def _process_event(
     window: FreeSimpleGUI.Window,
     worker: ScraperWorker,
-    event: str,
+    event: object,
     values: dict[str, Any],
 ) -> bool:
-    """Process a single GUI event.
-
-    Returns
-    -------
-    bool
-        False if the main loop should exit, True otherwise.
-
-    """
     if event in {FreeSimpleGUI.WIN_CLOSED, EVENT_EXIT}:
         if worker.is_running():
             worker.request_stop()
@@ -599,8 +528,13 @@ def run_gui() -> None:
 
     running = True
     while running:
-        event, values = window.read(timeout=100)
-        running = _process_event(window, worker, event, values)
+        read_result = window.read(timeout=100)
+        if not isinstance(read_result, tuple) or len(read_result) != PROGRESS_TUPLE_LEN:
+            event, values = FreeSimpleGUI.WIN_CLOSED, {}
+        else:
+            event, values = read_result
+        current_values = values if isinstance(values, dict) else {}
+        running = _process_event(window, worker, event, current_values)
 
     window.close()
 

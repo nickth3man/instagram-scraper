@@ -94,9 +94,13 @@ def test_profile_pipeline_writes_normalized_post_and_comment_artifacts(
     output_dir = tmp_path / "example"
     execute_pipeline("profile", username="example", output_dir=output_dir)
     posts_lines = (output_dir / "posts.ndjson").read_text(encoding="utf-8").splitlines()
-    comments_lines = (output_dir / "comments.ndjson").read_text(
-        encoding="utf-8",
-    ).splitlines()
+    comments_lines = (
+        (output_dir / "comments.ndjson")
+        .read_text(
+            encoding="utf-8",
+        )
+        .splitlines()
+    )
     assert len(posts_lines) == 1
     assert len(comments_lines) == 1
 
@@ -124,9 +128,13 @@ def test_profile_pipeline_records_raw_capture_manifest_when_enabled(
         output_dir=output_dir,
         raw_captures=True,
     )
-    lines = (output_dir / "raw_captures.ndjson").read_text(
-        encoding="utf-8",
-    ).splitlines()
+    lines = (
+        (output_dir / "raw_captures.ndjson")
+        .read_text(
+            encoding="utf-8",
+        )
+        .splitlines()
+    )
     assert len(lines) == 1
 
 

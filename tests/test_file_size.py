@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 MAX_PYTHON_FILE_LINES = 550
 PROJECT_DIRECTORIES = ("src", "tests", "scripts")
 SKIP_DIRECTORY_NAMES = {"__pycache__", ".venv", ".git"}
@@ -34,7 +33,12 @@ def test_python_files_stay_within_ai_friendly_size_limit() -> None:
         relative_path = path.relative_to(project_root).as_posix()
         if line_count > MAX_PYTHON_FILE_LINES:
             violations.append(
-                f"{relative_path}: {line_count} lines (exceeds {MAX_PYTHON_FILE_LINES})"
+                (
+                    f"{relative_path}: {line_count} lines "
+                    f"(exceeds {MAX_PYTHON_FILE_LINES})"
+                ),
             )
 
-    assert not violations, "Files exceeding AI-friendly size limit:\n" + "\n".join(violations)
+    assert not violations, "Files exceeding AI-friendly size limit:\n" + "\n".join(
+        violations,
+    )
