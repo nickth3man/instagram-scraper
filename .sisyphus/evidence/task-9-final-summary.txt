@@ -1,0 +1,12 @@
+=== Task 9: Final 99+1 Closure Accounting ===
+Input URLs: 100
+Successful posts: 99
+Failing shortcodes: 1
+Total accounted: 100
+Comment rows: 1322
+Exact duplicate comments: 0
+Download bases: 1
+
+Post shortcodes: 99
+Error shortcodes: 1
+Expected 99+1 = True

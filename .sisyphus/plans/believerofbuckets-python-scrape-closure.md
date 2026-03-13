@@ -146,7 +146,7 @@ Max Concurrent: 4
 
 ## TODOs
 
-- [ ] 1. Define the authoritative closure artifact set and stale-artifact policy
+- [x] 1. Define the authoritative closure artifact set and stale-artifact policy
 
   **What to do**:
   - Identify the exact files/directories that count as final source-of-truth for this scrape: `tool_dump.json`, `posts.csv`, `comments.csv`, `errors.csv`, `downloads/`, and the new closure evidence/report artifacts.
@@ -220,7 +220,7 @@ Max Concurrent: 4
   - Files: `tests/...`, minimal helper module(s)
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 2. Implement the final bounded freshness bundle for `DVsHusCjCTU`
+- [x] 2. Implement the final bounded freshness bundle for `DVsHusCjCTU`
 
   **What to do**:
   - Add or extract a reusable bounded verification entrypoint that re-checks `DVsHusCjCTU` using the approved Python-only paths.
@@ -291,7 +291,7 @@ Max Concurrent: 4
   - Files: minimal closure verification code/tests/evidence helpers
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 3. Build duplicate-comment audit and deterministic dedupe rules
+- [x] 3. Build duplicate-comment audit and deterministic dedupe rules
 
   **What to do**:
   - Add tests that codify the duplicate problem observed in `comments.csv`, including exact-row duplicates and before/after counts.
@@ -361,7 +361,7 @@ Max Concurrent: 4
   - Files: closure utility/tests and updated comment output copy if part of the workflow
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 4. Build media/post/error integrity audit and reconciliation checks
+- [x] 4. Build media/post/error integrity audit and reconciliation checks
 
   **What to do**:
   - Add or extract a verification command that recomputes final invariants from disk: URL count, post uniqueness, error count, download base count, and comment duplicate count.
@@ -432,7 +432,7 @@ Max Concurrent: 4
   - Files: closure audit tests/helpers
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 5. Apply stale-artifact cleanup or archive workflow
+- [x] 5. Apply stale-artifact cleanup or archive workflow
 
   **What to do**:
   - Execute the policy from Task 1 against stale browser-dump and exploratory artifacts.
@@ -503,7 +503,7 @@ Max Concurrent: 4
   - Files: cleaned/archived artifacts plus any helper code/tests
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 6. Apply dedupe and reconciliation to the authoritative outputs
+- [x] 6. Apply dedupe and reconciliation to the authoritative outputs
 
   **What to do**:
   - Run the approved dedupe workflow against the authoritative comment data.
@@ -572,7 +572,7 @@ Max Concurrent: 4
   - Files: authoritative CSVs, repair utility/tests, summary artifacts
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 7. Generate the final closure report and evidence manifest
+- [x] 7. Generate the final closure report and evidence manifest
 
   **What to do**:
   - Produce the final machine-readable or markdown closure summary that states the final accounting, the blocked-shortcode evidence outcome, and any residual caveats such as remaining comment-count mismatches.
@@ -642,7 +642,7 @@ Max Concurrent: 4
   - Files: final closure report and any evidence manifest helpers/tests
   - Pre-commit: `uv run python -m pytest <targeted tests>`
 
-- [ ] 8. Run repo quality gates and closure-specific verification
+- [x] 8. Run repo quality gates and closure-specific verification
 
   **What to do**:
   - Run the full repository gates required by project policy: Ruff, Ty, and full pytest.
@@ -710,7 +710,7 @@ Max Concurrent: 4
   - Files: none unless a failure requires a follow-up fix commit
   - Pre-commit: n/a
 
-- [ ] 9. Re-verify final `99 + 1` closure accounting from disk
+- [x] 9. Re-verify final `99 + 1` closure accounting from disk
 
   **What to do**:
   - Run one final disk-only summary pass after cleanup, dedupe, report generation, and repo gates.
@@ -784,19 +784,19 @@ Max Concurrent: 4
 
 ## Final Verification Wave
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. Verify the final deliverables exist on disk, verify stale-artifact policy was applied as specified, and reject if any required closure evidence or dedupe summary is missing.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   Run `uv run ruff check .`, `uv run ty check`, and `uv run python -m pytest`. Review changed helper code/tests for brittle assumptions, hard-coded usernames, broad deletions, or hidden retry/sleep behavior.
   Output: `Build [PASS/FAIL] | Lint [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **Real Artifact QA** — `unspecified-high`
+- [x] F3. **Real Artifact QA** — `unspecified-high`
   Execute every QA scenario from Tasks 1-9, validate evidence files under `.sisyphus/evidence/`, and confirm the final directory state contains only authoritative outputs plus any declared archive.
   Output: `Scenarios [N/N pass] | Artifacts [N/N] | Edge Cases [N tested] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   Compare the final changes against this plan. Reject any browser-use paths, scraper redesign work, unrelated refactors, or claims beyond `99/100 complete with evidence` unless Task 2 changed the outcome.
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | Unaccounted [CLEAN/N files] | VERDICT`
 

@@ -1,0 +1,8 @@
+{
+  "download_base_count": 99,
+  "duplicate_comment_row_count": 0,
+  "duplicate_post_row_count": 0,
+  "failing_shortcode_count": 1,
+  "input_url_count": 100,
+  "successful_post_count": 99
+}
