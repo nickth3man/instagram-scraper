@@ -238,7 +238,10 @@ def test_audit_closure_output_rejects_partial_comments_csv_rows(
 
     with pytest.raises(
         ValueError,
-        match=re.escape("comments.csv row 2 is partial; missing fields: id"),
+        match=re.escape(
+            "comments.csv is missing required headers: parent_id, created_at_utc, "
+            "text, comment_like_count, owner_username, owner_id",
+        ),
     ):
         audit_closure_output(output_dir)
 

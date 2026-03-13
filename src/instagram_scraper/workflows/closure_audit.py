@@ -11,12 +11,18 @@ import sys
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.workflows.closure_artifacts import (
     classify_current_tree_artifacts,
     validate_authoritative_artifact_policy,
 )
-from instagram_scraper.workflows.comment_dedupe import comment_row_key
+from instagram_scraper.workflows.comment_dedupe import (
+    COMMENT_ROW_FIELDNAMES,
+    comment_row_key,
+)
 
 _SHORTCODE_URL_PATTERN = re.compile(r"/([A-Za-z0-9_-]+)/?$")
 _DOWNLOAD_SUFFIX_PATTERN = re.compile(r"^(?P<shortcode>.+?)(?:_\d+)?$")
@@ -39,7 +45,7 @@ def _load_tool_dump_urls(path: Path) -> list[str]:
     urls = payload.get("urls")
     if not isinstance(urls, list) or any(not isinstance(url, str) for url in urls):
         message = "tool_dump.json must contain a urls list of strings"
-        raise ValueError(message)
+        raise InstagramError(message, code=ErrorCode.INVALID_ARTIFACT)
     return urls
 
 
@@ -66,9 +72,7 @@ def _read_validated_csv_rows(
         rows: list[dict[str, str]] = []
         for row_number, row in enumerate(reader, start=2):
             partial_fields = [
-                field
-                for field in required_headers
-                if row.get(field) is None
+                field for field in required_headers if row.get(field) is None
             ]
             if partial_fields:
                 formatted_fields = ", ".join(partial_fields)
@@ -79,9 +83,7 @@ def _read_validated_csv_rows(
                 raise ValueError(message)
 
             blank_fields = [
-                field
-                for field in required_non_blank_fields
-                if not row[field].strip()
+                field for field in required_non_blank_fields if not row[field].strip()
             ]
             if blank_fields:
                 formatted_fields = ", ".join(blank_fields)
@@ -117,8 +119,7 @@ def _count_unique_error_shortcodes(rows: list[dict[str, str]]) -> int:
 
 
 def _extract_shortcode_from_url(url: str) -> str:
-    stripped_url = url.rstrip("/")
-    match = _SHORTCODE_URL_PATTERN.search(stripped_url)
+    match = _SHORTCODE_URL_PATTERN.search(urlsplit(url).path.rstrip("/"))
     if match is None:
         message = f"tool_dump.json contains an unparseable Instagram URL: {url}"
         raise ValueError(message)
@@ -226,7 +227,7 @@ def audit_closure_output(output_dir: Path) -> ClosureAudit:
     )
     comment_rows = _read_validated_csv_rows(
         output_dir / "comments.csv",
-        required_headers=("post_shortcode", "id"),
+        required_headers=COMMENT_ROW_FIELDNAMES,
         required_non_blank_fields=("post_shortcode", "id"),
     )
 

@@ -32,6 +32,7 @@ from instagram_scraper.core.mode_definitions import (
     _urls_run,
     _urls_targets,
 )
+from instagram_scraper.core.mode_helpers import ModeInputError
 from instagram_scraper.core.sync_definitions import (
     _hashtag_sync_run,
     _hashtag_sync_targets,
@@ -46,10 +47,6 @@ if TYPE_CHECKING:
 
 _ModeKwargs = dict[str, object]
 _GuiValues = dict[str, object]
-
-
-class ModeInputError(ValueError):
-    """Raised when mode input validation fails."""
 
 
 class TargetResolver(Protocol):
@@ -191,6 +188,8 @@ SCRAPE_MODE_DEFINITIONS: dict[str, ScrapeModeDefinition] = {
 }
 
 GUI_SCRAPE_MODES: tuple[str, ...] = tuple(SCRAPE_MODE_DEFINITIONS.keys())
+
+__all__ = ["ModeInputError"]
 
 SYNC_MODE_DEFINITIONS: dict[str, SyncModeDefinition] = {
     "sync:profile": SyncModeDefinition(

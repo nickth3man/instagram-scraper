@@ -99,6 +99,4 @@ def test_verify_shortcode_freshness_fails_closed_on_unexpected_success(
     assert result.payload["overall_outcome"] == "unexpected_success"
     checks = cast("list[dict[str, object]]", result.payload["checks"])
     assert checks[1]["outcome"] == "unexpected_success"
-    assert checks[1]["detail"] == (
-        "shortcode_resolved:DVsHusCjCTU:GraphVideo"
-    )
+    assert checks[1]["detail"] == ("shortcode_resolved:DVsHusCjCTU:GraphVideo")

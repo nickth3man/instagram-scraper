@@ -1,4 +1,3 @@
-import importlib
 import json
 from pathlib import Path
 
@@ -11,10 +10,11 @@ from instagram_scraper.workflows import (
     _video_download_process as video_download_process,
 )
 from instagram_scraper.workflows import video_downloads as videos
-
-
-def _shared_io_module():
-    return importlib.import_module("instagram_scraper.infrastructure.files")
+from instagram_scraper.workflows.video_downloads import (
+    _DownloadContext,
+    _initial_metrics,
+    _prepare_output,
+)
 
 
 def test_download_entries_writes_index_and_error_rows(
@@ -36,9 +36,9 @@ def test_download_entries_writes_index_and_error_rows(
         cookie_header="",
         max_concurrent_downloads=1,
     )
-    paths = videos.__dict__["_prepare_output"](cfg)
-    metrics = videos.__dict__["_initial_metrics"](None)
-    context = videos.__dict__["_DownloadContext"](
+    paths = _prepare_output(cfg)
+    metrics = _initial_metrics(None)
+    context = _DownloadContext(
         cfg=cfg,
         session=object(),
         paths=paths,
@@ -113,7 +113,7 @@ def test_process_post_row_success_writes_payload_and_checkpoints(
         max_concurrent_downloads=1,
     )
     paths = videos.__dict__["_prepare_output"](cfg)
-    context = videos.__dict__["_DownloadContext"](
+    context = _DownloadContext(
         cfg=cfg,
         session=object(),
         paths=paths,
@@ -132,7 +132,7 @@ def test_process_post_row_success_writes_payload_and_checkpoints(
                 },
             ],
         },
-        metrics=videos.__dict__["_initial_metrics"](None),
+        metrics=_initial_metrics(None),
         completed=set(),
     )
 

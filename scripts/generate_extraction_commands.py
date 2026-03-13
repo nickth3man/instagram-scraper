@@ -6,6 +6,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
+
+
+def _extract_shortcode(url: str) -> str:
+    parts = [part for part in urlsplit(url).path.split("/") if part]
+    return parts[-1] if parts else ""
 
 
 def _main() -> int:
@@ -19,7 +25,7 @@ def _main() -> int:
     sys.stdout.write(f"{'=' * 60}\n")
 
     for url in urls:
-        shortcode = url.split("/")[-2]
+        shortcode = _extract_shortcode(url)
         sys.stdout.write(f"\n# Extracting: {shortcode}\n")
         sys.stdout.write(f"Navigate to: {url}\n")
         sys.stdout.write(

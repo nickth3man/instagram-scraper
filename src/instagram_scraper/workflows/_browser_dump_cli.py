@@ -33,6 +33,7 @@ def parse_args() -> Config:
     parser.add_argument("--base-retry-seconds", type=float, default=2.0)
     parser.add_argument("--cookie-header", default=os.getenv("IG_COOKIE_HEADER", ""))
     args = parser.parse_args()
+    min_delay = max(0.0, args.min_delay)
     return Config(
         tool_dump_path=Path(args.tool_dump_path),
         output_dir=Path(args.output_dir),
@@ -42,8 +43,8 @@ def parse_args() -> Config:
         limit=args.limit,
         checkpoint_every=max(1, args.checkpoint_every),
         max_comment_pages=max(1, args.max_comment_pages),
-        min_delay=max(0.0, args.min_delay),
-        max_delay=max(args.min_delay, args.max_delay),
+        min_delay=min_delay,
+        max_delay=max(min_delay, args.max_delay),
         request_timeout=max(1, args.request_timeout),
         max_retries=max(1, args.max_retries),
         base_retry_seconds=max(0.1, args.base_retry_seconds),
@@ -68,11 +69,11 @@ def _default_output_dir() -> Path:
 
 
 def _runtime_int(value: object, *, default: int) -> int:
-    return value if isinstance(value, int) else default
+    return max(1, value) if isinstance(value, int) else default
 
 
 def _runtime_float(value: object, *, default: float) -> float:
-    return value if isinstance(value, int | float) else default
+    return max(0.0, float(value)) if isinstance(value, int | float) else default
 
 
 def _validate_instagram_post_urls(urls: list[str]) -> None:

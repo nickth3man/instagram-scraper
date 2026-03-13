@@ -176,7 +176,7 @@ def _request_with_retry(
 
 
 def _extract_shortcode(url: str) -> str | None:
-    match = re.search(r"/(?:p|reel)/([^/]+)/", url)
+    match = re.search(r"/(?:p|reel)/([^/]+)/?$", url)
     return None if match is None else match.group(1)
 
 

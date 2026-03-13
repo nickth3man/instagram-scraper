@@ -94,7 +94,7 @@ class CommentsLookup:
                 reader = csv.DictReader(file)
                 rows: list[tuple[str, str]] = []
                 for row in reader:
-                    shortcode = row.get("shortcode")
+                    shortcode = row.get("post_shortcode") or row.get("shortcode")
                     if not shortcode:
                         continue
                     rows.append((shortcode, json.dumps(dict(row), ensure_ascii=False)))
@@ -160,9 +160,9 @@ def iter_target_rows(posts_csv: Path, limit: int | None) -> Iterator[dict[str, s
         with posts_csv.open("r", encoding="utf-8", newline="") as file:
             reader = csv.DictReader(file)
             for row in reader:
+                if limit is not None and yielded >= limit:
+                    return
                 if row.get("type") != media_type:
                     continue
                 yield dict(row)
                 yielded += 1
-                if limit is not None and yielded >= limit:
-                    return

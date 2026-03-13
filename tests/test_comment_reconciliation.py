@@ -6,6 +6,8 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 comment_dedupe = import_module("instagram_scraper.workflows.comment_dedupe")
@@ -109,9 +111,10 @@ def test_reconcile_authoritative_comment_outputs_dedupes_in_place_and_records_de
     assert summary.affected_shortcodes == ("AAA111",)
     assert summary.matched_post_count == 1
     assert summary.mismatched_post_count == 2
-    assert [
-        mismatch.shortcode for mismatch in summary.mismatches
-    ] == ["AAA111", "CCC333"]
+    assert [mismatch.shortcode for mismatch in summary.mismatches] == [
+        "AAA111",
+        "CCC333",
+    ]
     assert [mismatch.delta for mismatch in summary.mismatches] == [-2, -2]
     assert _read_csv(comments_path) == [
         {
@@ -166,3 +169,45 @@ def test_reconcile_authoritative_comment_outputs_dedupes_in_place_and_records_de
             "shortcode": "CCC333",
         },
     ]
+
+
+def test_reconciliation_failure_keeps_original_comments_csv(tmp_path: Path) -> None:
+    output_dir = tmp_path / "closure"
+    output_dir.mkdir()
+    comments_path = output_dir / "comments.csv"
+    posts_path = output_dir / "posts.csv"
+    summary_path = output_dir / "comment_reconciliation_summary.json"
+    rows = [
+        {
+            "post_shortcode": "AAA111",
+            "id": "c1",
+            "parent_id": "",
+            "created_at_utc": "2026-03-10T00:00:00",
+            "text": "same row",
+            "comment_like_count": "0",
+            "owner_username": "user1",
+            "owner_id": "1",
+        },
+        {
+            "post_shortcode": "AAA111",
+            "id": "c1",
+            "parent_id": "",
+            "created_at_utc": "2026-03-10T00:00:00",
+            "text": "same row",
+            "comment_like_count": "0",
+            "owner_username": "user1",
+            "owner_id": "1",
+        },
+    ]
+    _write_csv(comments_path, list(COMMENT_ROW_FIELDNAMES), rows)
+    _write_csv(
+        posts_path,
+        ["shortcode", "comments_count_reported"],
+        [{"shortcode": "AAA111", "comments_count_reported": "bad"}],
+    )
+
+    with pytest.raises(ValueError, match="non-integer comments_count_reported"):
+        reconcile_authoritative_comment_outputs(output_dir, summary_path=summary_path)
+
+    assert _read_csv(comments_path) == rows
+    assert not summary_path.exists()

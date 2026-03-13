@@ -80,9 +80,28 @@ def _download_entries(
             executor.submit(_download_task, context, post, task): task for task in tasks
         }
         for future in as_completed(future_to_task):
-            row = future.result()
-            if row is not None:
-                downloaded.append(row)
+            ok, result = future.result()
+            if ok and isinstance(result, dict):
+                downloaded.append(result)
+                _append_csv(
+                    context.paths["index_csv"],
+                    context.paths["index_header"],
+                    result,
+                )
+                context.metrics["downloaded_files"] += 1
+            elif not ok and isinstance(result, str):
+                _append_csv(
+                    context.paths["errors_csv"],
+                    context.paths["error_header"],
+                    {
+                        "shortcode": post.shortcode,
+                        "media_id": post.media_id,
+                        "post_url": post.post_url,
+                        "stage": "download_video_file",
+                        "error": result,
+                    },
+                )
+                context.metrics["errors"] += 1
     return downloaded
 
 
@@ -109,7 +128,7 @@ def _download_task(
     context: _DownloadContext,
     post: _PostTarget,
     task: _VideoDownloadTask,
-) -> dict[str, object] | None:
+) -> tuple[bool, dict[str, object] | str]:
     session = (
         context.download_sessions.get()
         if context.download_sessions is not None
@@ -122,23 +141,9 @@ def _download_task(
         context.cfg,
     )
     if not ok:
-        _append_csv(
-            context.paths["errors_csv"],
-            context.paths["error_header"],
-            {
-                "shortcode": post.shortcode,
-                "media_id": post.media_id,
-                "post_url": post.post_url,
-                "stage": "download_video_file",
-                "error": download_error or "video_download_failed",
-            },
-        )
-        context.metrics["errors"] += 1
-        return None
+        return False, download_error or "video_download_failed"
     row = _index_row(post, task)
-    _append_csv(context.paths["index_csv"], context.paths["index_header"], row)
-    context.metrics["downloaded_files"] += 1
-    return row
+    return True, row
 
 
 def _index_row(post: _PostTarget, task: _VideoDownloadTask) -> dict[str, object]:

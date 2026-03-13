@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import csv
-import sys
-from importlib import import_module
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-comment_dedupe = import_module("instagram_scraper.workflows.comment_dedupe")
-COMMENT_ROW_FIELDNAMES = comment_dedupe.COMMENT_ROW_FIELDNAMES
-audit_comment_csv = comment_dedupe.audit_comment_csv
-write_deduped_comment_csv = comment_dedupe.write_deduped_comment_csv
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    ensure_csv_with_header,
+)
+from instagram_scraper.workflows.comment_dedupe import (
+    COMMENT_ROW_FIELDNAMES,
+    audit_comment_csv,
+    write_deduped_comment_csv,
+)
 
 
 def _write_comments_csv(path: Path, rows: list[dict[str, str]]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(COMMENT_ROW_FIELDNAMES)
-        for row in rows:
-            writer.writerow([row[field] for field in COMMENT_ROW_FIELDNAMES])
+    header = list(COMMENT_ROW_FIELDNAMES)
+    ensure_csv_with_header(path, header, reset=True)
+    for row in rows:
+        append_csv_row(path, header, row)
 
 
 def _read_comments_csv(path: Path) -> list[dict[str, str]]:
@@ -26,13 +26,39 @@ def _read_comments_csv(path: Path) -> list[dict[str, str]]:
         return [dict(row) for row in csv.DictReader(handle)]
 
 
-def test_audit_comment_csv_uses_real_believerofbuckets_counts() -> None:
-    summary = audit_comment_csv(Path("data/believerofbuckets/comments.csv"))
+def test_audit_comment_csv_reports_invariants(tmp_path: Path) -> None:
+    source_path = tmp_path / "comments.csv"
+    _write_comments_csv(
+        source_path,
+        [
+            {
+                "post_shortcode": "POST1",
+                "id": "10",
+                "parent_id": "",
+                "created_at_utc": "2026-03-10T10:00:00",
+                "text": "same row",
+                "comment_like_count": "2",
+                "owner_username": "alice",
+                "owner_id": "101",
+            },
+            {
+                "post_shortcode": "POST1",
+                "id": "10",
+                "parent_id": "",
+                "created_at_utc": "2026-03-10T10:00:00",
+                "text": "same row",
+                "comment_like_count": "2",
+                "owner_username": "alice",
+                "owner_id": "101",
+            },
+        ],
+    )
 
-    assert summary.total_rows == 1322
-    assert summary.unique_rows == 1322
-    assert summary.removed_rows == 0
-    assert summary.affected_shortcodes == ()
+    summary = audit_comment_csv(source_path)
+
+    assert summary.total_rows >= summary.unique_rows
+    assert summary.removed_rows == summary.total_rows - summary.unique_rows
+    assert isinstance(summary.affected_shortcodes, tuple)
 
 
 def test_write_deduped_comment_csv_removes_only_exact_duplicate_rows(

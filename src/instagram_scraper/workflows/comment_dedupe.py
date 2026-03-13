@@ -7,6 +7,11 @@ import csv
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    ensure_csv_with_header,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
@@ -163,9 +168,12 @@ def write_deduped_comment_csv(
             raise ValueError(message)
         unique_rows, summary = dedupe_comment_rows(reader)
 
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(COMMENT_ROW_FIELDNAMES)
-        for row in unique_rows:
-            writer.writerow([row[field] for field in COMMENT_ROW_FIELDNAMES])
+    header = list(COMMENT_ROW_FIELDNAMES)
+    ensure_csv_with_header(output_path, header, reset=True)
+    for row in unique_rows:
+        append_csv_row(
+            output_path,
+            header,
+            {field: row[field] for field in COMMENT_ROW_FIELDNAMES},
+        )
     return summary

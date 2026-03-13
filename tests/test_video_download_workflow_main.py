@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.workflows.video_downloads import (
     DEFAULT_DATA_DIR_FALLBACK,
     DEFAULT_USERNAME_FALLBACK,
@@ -137,8 +138,8 @@ def mock_session(mock_response: MagicMock) -> MagicMock:
 
 
 def test_run_posts_csv_not_found(sample_config: Config) -> None:
-    """Test run raises FileNotFoundError when posts.csv missing."""
-    with pytest.raises(FileNotFoundError):
+    """Test run raises InstagramError when posts.csv is missing."""
+    with pytest.raises(InstagramError, match="posts CSV not found"):
         run(sample_config)
 
 

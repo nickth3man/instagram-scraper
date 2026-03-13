@@ -4,16 +4,27 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import json
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright
+try:
+    _playwright_sync = importlib.import_module("playwright.sync_api")
+except ImportError:
+    _playwright_sync = None
 
-if TYPE_CHECKING:
-    from playwright.sync_api import Page
+if _playwright_sync is None:
+    PlaywrightTimeoutError = RuntimeError
+    sync_playwright = None
+else:
+    PlaywrightTimeoutError = _playwright_sync.TimeoutError
+    sync_playwright = _playwright_sync.sync_playwright
+
+Page = Any
 
 FIELDNAMES = [
     "shortcode",
@@ -27,12 +38,22 @@ FIELDNAMES = [
 ]
 
 
+def _extract_shortcode(url: str) -> str | None:
+    parts = [part for part in urlsplit(url).path.split("/") if part]
+    return parts[-1] if parts else None
+
+
+def _extract_caption(description: str) -> str | None:
+    match = re.search(r'-\s+[^:]+:\s+"([^\"]*)"', description)
+    return match.group(1) if match is not None else None
+
+
 def _extract_post_data(page: Page, url: str) -> dict[str, Any]:
     page.goto(url, wait_until="domcontentloaded", timeout=20000)
     page.wait_for_timeout(2500)
     html = page.content()
     data: dict[str, Any] = {
-        "shortcode": url.split("/")[-2],
+        "shortcode": _extract_shortcode(url),
         "post_url": url,
         "media_id": None,
         "like_count": None,
@@ -42,7 +63,7 @@ def _extract_post_data(page: Page, url: str) -> dict[str, Any]:
         "typename": None,
     }
 
-    media_match = re.search(r'"media_id":"(\d+)_', html)
+    media_match = re.search(r'"media_id":"(\d+)"', html)
     if media_match is not None:
         data["media_id"] = media_match.group(1)
 
@@ -55,8 +76,7 @@ def _extract_post_data(page: Page, url: str) -> dict[str, Any]:
         comment_match = re.search(r"(\d+(?:,\d+)*)\s+comments?", desc)
         if comment_match is not None:
             data["comment_count"] = int(comment_match.group(1).replace(",", ""))
-        if " - " in desc:
-            data["caption"] = desc.split(" - ")[0]
+        data["caption"] = _extract_caption(desc)
 
     data["is_video"] = "video" in html.lower() and '"video_url"' in html
     data["typename"] = "GraphVideo" if data["is_video"] else "GraphImage"
@@ -75,14 +95,15 @@ def _main() -> int:
     posts: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
+    if sync_playwright is None:
+        sys.stdout.write("Playwright is required for this script\n")
+        return 1
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36"
-            ),
+            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
         )
         page = context.new_page()
 
@@ -99,7 +120,7 @@ def _main() -> int:
                 else:
                     errors.append({"url": url, "error": "no media_id"})
                     sys.stdout.write("FAIL (no media_id)\n")
-            except (OSError, ValueError, TypeError) as error:
+            except (OSError, PlaywrightTimeoutError, ValueError, TypeError) as error:
                 errors.append({"url": url, "error": str(error)})
                 sys.stdout.write(f"ERROR: {error}\n")
 

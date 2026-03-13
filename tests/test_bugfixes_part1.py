@@ -359,7 +359,8 @@ def test_download_video_file_cleans_partial_file_on_write_error(
     tmp_path: Path,
 ) -> None:
     class FakeResponse:
-        def iter_content(self, chunk_size: int):  # noqa: ARG002
+        def iter_content(self, chunk_size: int):
+            del chunk_size
             # Simulate "download started, disk failed halfway through".
             yield b"partial-data"
             raise OSError("disk write interrupted")

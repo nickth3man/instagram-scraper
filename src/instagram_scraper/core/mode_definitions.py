@@ -50,7 +50,8 @@ def _profile_run(kwargs: _ModeKwargs) -> RunSummary:
 
 def _url_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
     )
     return cast(
         "list[TargetRecord]",
@@ -60,26 +61,52 @@ def _url_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
 
 def _url_run(kwargs: _ModeKwargs) -> RunSummary:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
     )
     return cast(
         "RunSummary",
         provider.run(
             post_url=_required_str(kwargs, "post_url"),
             output_dir=_path_arg(kwargs, "output_dir"),
-            cookie_header=_optional_str(kwargs, "cookie_header") or "",
-            request_timeout=_optional_int(kwargs, "request_timeout") or 30,
-            max_retries=_optional_int(kwargs, "max_retries") or 5,
-            checkpoint_every=_optional_int(kwargs, "checkpoint_every") or 20,
-            min_delay=_optional_float(kwargs, "min_delay") or 0.05,
-            max_delay=_optional_float(kwargs, "max_delay") or 0.2,
+            cookie_header=(
+                _optional_str(kwargs, "cookie_header")
+                if _optional_str(kwargs, "cookie_header") is not None
+                else ""
+            ),
+            request_timeout=(
+                _optional_int(kwargs, "request_timeout")
+                if _optional_int(kwargs, "request_timeout") is not None
+                else 30
+            ),
+            max_retries=(
+                _optional_int(kwargs, "max_retries")
+                if _optional_int(kwargs, "max_retries") is not None
+                else 5
+            ),
+            checkpoint_every=(
+                _optional_int(kwargs, "checkpoint_every")
+                if _optional_int(kwargs, "checkpoint_every") is not None
+                else 20
+            ),
+            min_delay=(
+                _optional_float(kwargs, "min_delay")
+                if _optional_float(kwargs, "min_delay") is not None
+                else 0.05
+            ),
+            max_delay=(
+                _optional_float(kwargs, "max_delay")
+                if _optional_float(kwargs, "max_delay") is not None
+                else 0.2
+            ),
         ),
     )
 
 
 def _urls_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
     )
     return cast(
         "list[TargetRecord]",
@@ -89,21 +116,46 @@ def _urls_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
 
 def _urls_run(kwargs: _ModeKwargs) -> RunSummary:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.url", "UrlScrapeProvider"),
     )
     return cast(
         "RunSummary",
         provider.run_urls(
             input_path=_path_arg(kwargs, "input_path"),
             output_dir=_path_arg(kwargs, "output_dir"),
-            cookie_header=_optional_str(kwargs, "cookie_header") or "",
+            cookie_header=(
+                _optional_str(kwargs, "cookie_header")
+                if _optional_str(kwargs, "cookie_header") is not None
+                else ""
+            ),
             resume=bool(kwargs.get("resume")),
             reset_output=bool(kwargs.get("reset_output")),
-            request_timeout=_optional_int(kwargs, "request_timeout") or 30,
-            max_retries=_optional_int(kwargs, "max_retries") or 5,
-            checkpoint_every=_optional_int(kwargs, "checkpoint_every") or 20,
-            min_delay=_optional_float(kwargs, "min_delay") or 0.05,
-            max_delay=_optional_float(kwargs, "max_delay") or 0.2,
+            request_timeout=(
+                _optional_int(kwargs, "request_timeout")
+                if _optional_int(kwargs, "request_timeout") is not None
+                else 30
+            ),
+            max_retries=(
+                _optional_int(kwargs, "max_retries")
+                if _optional_int(kwargs, "max_retries") is not None
+                else 5
+            ),
+            checkpoint_every=(
+                _optional_int(kwargs, "checkpoint_every")
+                if _optional_int(kwargs, "checkpoint_every") is not None
+                else 20
+            ),
+            min_delay=(
+                _optional_float(kwargs, "min_delay")
+                if _optional_float(kwargs, "min_delay") is not None
+                else 0.05
+            ),
+            max_delay=(
+                _optional_float(kwargs, "max_delay")
+                if _optional_float(kwargs, "max_delay") is not None
+                else 0.2
+            ),
         ),
     )
 
@@ -240,7 +292,8 @@ def _interactions_run(mode: str, kwargs: _ModeKwargs) -> RunSummary:
 
 def _stories_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.stories", "StoriesProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.stories", "StoriesProvider"),
     )
     return cast(
         "list[TargetRecord]",
@@ -254,7 +307,8 @@ def _stories_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
 
 def _stories_run(kwargs: _ModeKwargs) -> RunSummary:
     provider = cast(
-        "Any", _load_attr("instagram_scraper.providers.stories", "StoriesProvider"),
+        "Any",
+        _load_attr("instagram_scraper.providers.stories", "StoriesProvider"),
     )
     return cast(
         "RunSummary",
@@ -270,7 +324,9 @@ def _stories_run(kwargs: _ModeKwargs) -> RunSummary:
 def _build_profile_gui_kwargs(values: _GuiValues) -> _ModeKwargs:
     return {
         "username": _required_text(
-            values, "-PROFILE-USERNAME-", "Username is required for profile scraping.",
+            values,
+            "-PROFILE-USERNAME-",
+            "Username is required for profile scraping.",
         ),
     }
 
@@ -300,7 +356,9 @@ def _build_hashtag_gui_kwargs(values: _GuiValues) -> _ModeKwargs:
 def _build_location_gui_kwargs(values: _GuiValues) -> _ModeKwargs:
     return {
         "location": _required_text(
-            values, "-LOCATION-LOCATION-", "Location is required.",
+            values,
+            "-LOCATION-LOCATION-",
+            "Location is required.",
         ),
     }
 
@@ -342,6 +400,8 @@ def _build_stories_gui_kwargs(values: _GuiValues) -> _ModeKwargs:
     return {
         "username": None,
         "hashtag": _required_text(
-            values, "-STORIES-HASHTAG-", "Hashtag is required for stories scraping.",
+            values,
+            "-STORIES-HASHTAG-",
+            "Hashtag is required for stories scraping.",
         ),
     }

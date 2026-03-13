@@ -23,7 +23,11 @@ if TYPE_CHECKING:
 
 
 def _sync_targets(
-    *, mode: str, target_kind: str, target_key: str, kwargs: _ModeKwargs,
+    *,
+    mode: str,
+    target_kind: str,
+    target_key: str,
+    kwargs: _ModeKwargs,
 ) -> list[TargetRecord]:
     resolver = cast("Any", _load_sync_attr("resolve_sync_targets"))
     return resolver(
@@ -44,7 +48,10 @@ def _profile_sync_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
 
 def _hashtag_sync_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
     return _sync_targets(
-        mode="sync:hashtag", target_kind="hashtag", target_key="hashtag", kwargs=kwargs,
+        mode="sync:hashtag",
+        target_kind="hashtag",
+        target_key="hashtag",
+        kwargs=kwargs,
     )
 
 
@@ -58,7 +65,9 @@ def _location_sync_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:
 
 
 def _load_profile_sync_posts(
-    *, output_dir: Path, **_: object,
+    *,
+    output_dir: Path,
+    **_: object,
 ) -> list[dict[str, object]]:
     dataset_path = output_dir / "instagram_dataset.json"
     if not dataset_path.exists():
@@ -72,10 +81,14 @@ def _load_profile_sync_posts(
 
 
 def _profile_sync_scrape(
-    *, target_value: str, output_dir: Path, **_: object,
+    *,
+    target_value: str,
+    output_dir: Path,
+    **_: object,
 ) -> SyncSummary:
     runner = cast(
-        "Any", _load_attr("instagram_scraper.workflows.profile", "run_profile_scrape"),
+        "Any",
+        _load_attr("instagram_scraper.workflows.profile", "run_profile_scrape"),
     )
     return cast("SyncSummary", runner(username=target_value, output_dir=output_dir))
 
@@ -98,39 +111,52 @@ def _discovery_target_count(
     target_value: str,
     limit: int | None,
 ) -> int:
-    provider = cast("Any", _load_attr(module_name, provider_attr))
-    records = provider.resolve_targets(**{target_key: target_value})
+    provider_class = cast("Any", _load_attr(module_name, provider_attr))
+    provider = provider_class()
+    records = provider.resolve_targets(**{target_key: target_value, "limit": limit})
     discovered = len(records) if isinstance(records, list) else 0
     return discovered if limit is None else min(discovered, limit)
 
 
 def _hashtag_sync_scrape(
-    *, target_value: str, output_dir: Path | None, limit: int | None, **_: object,
+    *,
+    target_value: str,
+    output_dir: Path | None,
+    limit: int | None,
+    **_: object,
 ) -> SyncSummary:
-    run_legacy = cast(
-        "Any", _load_attr("instagram_scraper.providers.hashtag", "run_hashtag_scrape"),
-    )
+    provider = cast(
+        "Any",
+        _load_attr("instagram_scraper.providers.hashtag", "HashtagScrapeProvider"),
+    )()
     return cast(
         "SyncSummary",
-        run_legacy(hashtag=target_value, output_dir=output_dir, limit=limit),
+        provider.run(hashtag=target_value, output_dir=output_dir, limit=limit),
     )
 
 
 def _location_sync_scrape(
-    *, target_value: str, output_dir: Path | None, limit: int | None, **_: object,
+    *,
+    target_value: str,
+    output_dir: Path | None,
+    limit: int | None,
+    **_: object,
 ) -> SyncSummary:
-    run_legacy = cast(
+    provider = cast(
         "Any",
-        _load_attr("instagram_scraper.providers.location", "run_location_scrape"),
-    )
+        _load_attr("instagram_scraper.providers.location", "LocationScrapeProvider"),
+    )()
     return cast(
         "SyncSummary",
-        run_legacy(location=target_value, output_dir=output_dir, limit=limit),
+        provider.run(location=target_value, output_dir=output_dir, limit=limit),
     )
 
 
 def _hashtag_sync_posts(
-    *, target_value: str, limit: int | None, **_: object,
+    *,
+    target_value: str,
+    limit: int | None,
+    **_: object,
 ) -> list[dict[str, object]]:
     return _synthetic_sync_posts(
         target_value,
@@ -145,7 +171,10 @@ def _hashtag_sync_posts(
 
 
 def _location_sync_posts(
-    *, target_value: str, limit: int | None, **_: object,
+    *,
+    target_value: str,
+    limit: int | None,
+    **_: object,
 ) -> list[dict[str, object]]:
     return _synthetic_sync_posts(
         target_value,

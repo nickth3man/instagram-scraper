@@ -75,7 +75,8 @@ def run(cfg: Config) -> dict[str, object]:
     summary = _build_summary(cfg.output_dir, output_paths, metrics)
     atomic_write_text(cfg.output_dir / "summary.json", json.dumps(summary, indent=2))
     _save_checkpoint(
-        cfg.output_dir, _checkpoint_state(metrics, len(urls), completed=True),
+        cfg.output_dir,
+        _checkpoint_state(metrics, len(urls), completed=True),
     )
     return summary
 
@@ -98,9 +99,9 @@ def run_url_scrape(
     _validate_instagram_post_urls(urls)
     output_dir.mkdir(parents=True, exist_ok=True)
     tool_dump_path = output_dir / "tool_dump.json"
-    tool_dump_path.write_text(
+    atomic_write_text(
+        tool_dump_path,
         json.dumps({"count": len(urls), "urls": urls}, indent=2),
-        encoding="utf-8",
     )
     return run(
         Config(
@@ -133,8 +134,10 @@ def _load_urls_from_tool_dump(path: Path) -> list[str]:
     if payload is not None:
         urls = payload.get("urls")
         if isinstance(urls, list):
-            str_urls: list[str] = [item for item in urls if isinstance(item, str)]
-            return str_urls
+            if any(not isinstance(item, str) for item in urls):
+                message = "tool_dump.json must contain only string URLs"
+                raise TypeError(message)
+            return [item for item in urls if isinstance(item, str)]
     text = path.read_text(encoding="utf-8")
     parsed_urls: list[str] = []
     for payload_item in _tool_dump_payloads(text):

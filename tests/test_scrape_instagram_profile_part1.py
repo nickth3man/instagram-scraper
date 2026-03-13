@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,6 +24,9 @@ from instagram_scraper.workflows.profile import (
     _write_posts_csv,
     comment_to_dict,
 )
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 # Fixtures
 
@@ -117,7 +121,7 @@ def test_comment_to_dict_with_parent(mock_comment: MagicMock) -> None:
     assert result["parent_id"] == "99999"
 
 
-def test_comment_to_dict_missing_fields(mocker: pytest.MockFixture) -> None:
+def test_comment_to_dict_missing_fields(mocker: MockerFixture) -> None:
     """Test converting a comment with missing fields."""
     comment = mocker.MagicMock()
     comment.id = None
@@ -128,7 +132,7 @@ def test_comment_to_dict_missing_fields(mocker: pytest.MockFixture) -> None:
 
     result = comment_to_dict(comment)
 
-    assert result["id"] == "None"
+    assert result["id"] is None
     assert result["text"] is None
     assert result["created_at_utc"] is None
     assert result["comment_like_count"] is None
@@ -185,7 +189,7 @@ def test_collect_comments_empty(mock_post: MagicMock) -> None:
 
 
 def test_collect_comments_with_comments(
-    mocker: pytest.MockFixture,
+    mocker: MockerFixture,
     mock_post: MagicMock,
     mock_comment: MagicMock,
 ) -> None:
@@ -200,7 +204,7 @@ def test_collect_comments_with_comments(
 
 
 def test_collect_comments_with_replies(
-    mocker: pytest.MockFixture,
+    mocker: MockerFixture,
     mock_post: MagicMock,
     mock_comment: MagicMock,
     mock_reply: MagicMock,
@@ -220,7 +224,7 @@ def test_collect_comments_with_replies(
 
 
 def test_collect_comments_exception(
-    mocker: pytest.MockFixture,
+    mocker: MockerFixture,
     mock_post: MagicMock,
 ) -> None:
     """Test handling InstaloaderException during comment collection."""
@@ -267,7 +271,7 @@ def test_iter_post_rows_success(
 
 
 def test_iter_post_rows_quota_warning(
-    mocker: pytest.MockFixture,
+    mocker: MockerFixture,
     mock_instaloader: MagicMock,
     mock_profile: MagicMock,
     mock_post: MagicMock,
@@ -289,7 +293,7 @@ def test_iter_post_rows_quota_warning(
 
 
 def test_iter_post_rows_extraction_error(
-    mocker: pytest.MockFixture,
+    mocker: MockerFixture,
     mock_instaloader: MagicMock,
     mock_profile: MagicMock,
     mock_post: MagicMock,

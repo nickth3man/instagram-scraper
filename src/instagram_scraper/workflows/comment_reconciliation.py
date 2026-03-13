@@ -13,6 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    atomic_write_text,
+    ensure_csv_with_header,
+)
 from instagram_scraper.workflows.comment_dedupe import (
     COMMENT_ROW_FIELDNAMES,
     dedupe_comment_rows,
@@ -62,11 +67,10 @@ def _read_comment_rows(path: Path) -> list[dict[str, str]]:
 
 
 def _write_comment_rows(path: Path, rows: Sequence[dict[str, str]]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(COMMENT_ROW_FIELDNAMES)
-        for row in rows:
-            writer.writerow([row[field] for field in COMMENT_ROW_FIELDNAMES])
+    header = list(COMMENT_ROW_FIELDNAMES)
+    ensure_csv_with_header(path, header, reset=True)
+    for row in rows:
+        append_csv_row(path, header, {field: row[field] for field in header})
 
 
 def _read_post_rows(path: Path) -> list[dict[str, str]]:
@@ -75,16 +79,29 @@ def _read_post_rows(path: Path) -> list[dict[str, str]]:
         if reader.fieldnames is None:
             message = "posts.csv is missing a header row"
             raise ValueError(message)
-        required_headers = ("shortcode", "comments_count_reported")
-        missing_headers = [
+        required_headers = ("shortcode",)
+        missing_headers: list[str] = [
             header for header in required_headers if header not in reader.fieldnames
         ]
+        if (
+            "comments_count_reported" not in reader.fieldnames
+            and "comment_count" not in reader.fieldnames
+        ):
+            missing_headers.append("comments_count_reported|comment_count")
         if missing_headers:
-            message = (
-                "posts.csv is missing required headers: " + ", ".join(missing_headers)
+            message = "posts.csv is missing required headers: " + ", ".join(
+                missing_headers,
             )
             raise ValueError(message)
-        return [dict(row) for row in reader]
+        comment_field = (
+            "comments_count_reported"
+            if "comments_count_reported" in reader.fieldnames
+            else "comment_count"
+        )
+        rows = [dict(row) for row in reader]
+        for row in rows:
+            row["comments_count_reported"] = row.get(comment_field, "")
+        return rows
 
 
 def _build_mismatches(
@@ -151,10 +168,6 @@ def reconcile_authoritative_comment_outputs(
         {field: str(row[field]) for field in COMMENT_ROW_FIELDNAMES}
         for row in deduped_rows
     ]
-    temp_comments_path = comments_path.with_suffix(".csv.tmp")
-    _write_comment_rows(temp_comments_path, deduped_row_dicts)
-    temp_comments_path.replace(comments_path)
-
     post_rows = _read_post_rows(posts_path)
     mismatches = _build_mismatches(post_rows, deduped_row_dicts)
     summary = CommentReconciliationSummary(
@@ -169,10 +182,13 @@ def reconcile_authoritative_comment_outputs(
         mismatched_post_count=len(mismatches),
         mismatches=mismatches,
     )
-    resolved_summary_path.write_text(
+    temp_comments_path = comments_path.with_suffix(".csv.tmp")
+    _write_comment_rows(temp_comments_path, deduped_row_dicts)
+    atomic_write_text(
+        resolved_summary_path,
         json.dumps(asdict(summary), indent=2, sort_keys=True),
-        encoding="utf-8",
     )
+    temp_comments_path.replace(comments_path)
     return summary
 
 

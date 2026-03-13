@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import json
 import re
 import sys
@@ -12,15 +13,20 @@ from html import unescape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
-from playwright.sync_api import sync_playwright
+try:
+    _playwright_sync = importlib.import_module("playwright.sync_api")
+except ImportError:
+    _playwright_sync = None
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from playwright.sync_api import Browser, BrowserContext, Page, Playwright
+sync_playwright = None if _playwright_sync is None else _playwright_sync.sync_playwright
+
+Browser = BrowserContext = Page = Playwright = Any
 
 INSTAGRAM_URL_PATTERN = re.compile(r"https://www\.instagram\.com/(?:p|reel)/[^/]+/?")
-SHORTCODE_PATTERN = re.compile(r"/(?:p|reel)/([^/]+)/")
+SHORTCODE_PATTERN = re.compile(r"/(?:p|reel)/([^/]+)/?$")
 META_PATTERN_TEMPLATE = r'<meta[^>]+{attribute}="{name}"[^>]+content="([^"]*)"[^>]*>'
 POST_HEADER = [
     "media_id",
@@ -123,6 +129,9 @@ def _main() -> int:
 
     rows_written = 0
     browser: Browser | None = None
+    if sync_playwright is None:
+        sys.stdout.write("Playwright is required for this script\n")
+        return 1
     with sync_playwright() as playwright:
         context, browser = _build_context(playwright, args)
         try:
@@ -379,14 +388,17 @@ def _extract_meta_content(html: str, attribute: str, name: str) -> str | None:
 
 
 def _extract_is_video(html: str) -> bool:
-    return _first_match(
-        html,
-        [
-            r'"is_video":true',
-            r'<meta[^>]+property="og:video"',
-            r'"product_type":"clips"',
-        ],
-    ) is not None
+    return (
+        _first_match(
+            html,
+            [
+                r'"is_video":true',
+                r'<meta[^>]+property="og:video"',
+                r'"product_type":"clips"',
+            ],
+        )
+        is not None
+    )
 
 
 def _media_type(html: str, *, is_video: bool) -> int:

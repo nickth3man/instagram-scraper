@@ -1,2 +1,2 @@
 # Copyright (c) 2026
-"""Split video-download tests across focused modules."""
+"""Video-download coverage lives in the focused `test_video_download_*` modules."""

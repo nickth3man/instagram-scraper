@@ -9,7 +9,12 @@ import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, cast
 
-from instagram_scraper.infrastructure.env import load_project_env
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
+from instagram_scraper.infrastructure.files import (
+    append_csv_row,
+    ensure_csv_with_header,
+)
 from instagram_scraper.infrastructure.logging import configure_logging
 from instagram_scraper.workflows._video_download_cli import (
     _default_data_dir,
@@ -75,8 +80,6 @@ from instagram_scraper.workflows.video_download_support import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-load_project_env()
-
 __all__ = [
     "DEFAULT_DATA_DIR_FALLBACK",
     "DEFAULT_USERNAME_FALLBACK",
@@ -141,7 +144,7 @@ def _load_comments_by_shortcode(
     grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
     with comments_csv.open("r", newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
-            shortcode = row.get("shortcode", "")
+            shortcode = row.get("post_shortcode") or row.get("shortcode", "")
             if shortcode:
                 grouped[shortcode].append(dict(row))
     return dict(grouped)
@@ -168,12 +171,7 @@ def _write_comments_snapshot(
     post_dir: Path,
     post_comments: list[dict[str, str]],
 ) -> None:
-    header = (
-        "media_id,shortcode,post_url,id,created_at_utc,text,"
-        "comment_like_count,owner_username,owner_id"
-    )
-    lines = [header]
-    keys = (
+    keys = [
         "media_id",
         "shortcode",
         "post_url",
@@ -183,12 +181,15 @@ def _write_comments_snapshot(
         "comment_like_count",
         "owner_username",
         "owner_id",
-    )
-    lines.extend(
-        ",".join(str(row.get(key, "")) for key in keys)
-        for row in post_comments
-    )
-    _atomic_write_text(post_dir / "comments.csv", "\n".join(lines) + "\n")
+    ]
+    comments_path = post_dir / "comments.csv"
+    ensure_csv_with_header(comments_path, keys, reset=True)
+    for row in post_comments:
+        append_csv_row(
+            comments_path,
+            keys,
+            {key: row.get(key, "") or "" for key in keys},
+        )
 
 
 def _write_post_metadata(post_dir: Path, metadata: dict[str, object]) -> None:
@@ -210,20 +211,21 @@ def run(cfg: Config) -> dict[str, object]:
 
     Raises
     ------
-    FileNotFoundError
+    InstagramError
         If the posts CSV file is not found.
     """
     configure_logging(level="INFO")
     if not cfg.posts_csv.exists():
         message = f"posts CSV not found: {cfg.posts_csv}"
-        raise FileNotFoundError(message)
+        raise InstagramError(message, code=ErrorCode.MISSING_EXPORT_FILE)
     paths = _prepare_output(cfg)
     comments_by_shortcode = CommentsLookup(
         cfg.comments_csv,
         cfg.output_dir / ".video_comments.sqlite3",
     )
     checkpoint = _load_resume_checkpoint(
-        cfg.output_dir, should_resume=cfg.should_resume,
+        cfg.output_dir,
+        should_resume=cfg.should_resume,
     )
     metrics = _initial_metrics(checkpoint)
     completed = set(metrics["completed_shortcodes"])
@@ -249,7 +251,8 @@ def run(cfg: Config) -> dict[str, object]:
         session.close()
     summary = _build_summary(cfg.output_dir, paths, metrics, total_rows)
     _atomic_write_text(
-        cfg.output_dir / "videos_summary.json", json.dumps(summary, indent=2),
+        cfg.output_dir / "videos_summary.json",
+        json.dumps(summary, indent=2),
     )
     _save_checkpoint_snapshot(context, completed=True)
     return summary

@@ -19,20 +19,21 @@ from instagram_scraper.error_codes import (
     ErrorCode,
     error_code_from_status,
 )
-from instagram_scraper.infrastructure.env import load_project_env
-
-load_project_env()
 
 RetryConfig = _config.RetryConfig
 
-DEFAULT_USER_AGENT = os.getenv(
-    "INSTAGRAM_USER_AGENT",
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    ),
-)
+
+def _default_user_agent() -> str:
+    return os.getenv(
+        "INSTAGRAM_USER_AGENT",
+        (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/133.0.0.0 Safari/537.36"
+        ),
+    )
+
+
 SUCCESS_STATUS = 200
 RETRYABLE_STATUSES = RETRYABLE_STATUS_CODES
 SYSTEM_RANDOM = SystemRandom()
@@ -73,7 +74,7 @@ def build_instagram_client(
     session.mount("http://", adapter)
 
     headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
+        "User-Agent": _default_user_agent(),
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.instagram.com/",

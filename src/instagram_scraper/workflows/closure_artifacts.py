@@ -8,6 +8,9 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -61,7 +64,7 @@ _REMOVE_ARTIFACT_NAMES = {
 class ClosureArtifactInspection:
     """Computed authoritative closure counts for a scrape output tree."""
 
-    authoritative_artifact_names: set[str]
+    authoritative_artifact_names: frozenset[str]
     successful_shortcodes: int
     failing_shortcodes: int
     expected_shortcodes: int
@@ -103,20 +106,20 @@ def validate_authoritative_artifact_policy(
 
     Raises
     ------
-    ValueError
+    InstagramError
         Any authoritative artifact is missing or misclassified.
     """
     for name in sorted(AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES):
         policy = policy_by_name.get(name)
         if policy is None:
             message = f"Missing authoritative artifact: {name}"
-            raise ValueError(message)
+            raise InstagramError(message, code=ErrorCode.INVALID_ARTIFACT)
         if policy != "retain":
             message = (
                 f"Authoritative artifact '{name}' must use retain policy, "
                 f"got '{policy}'"
             )
-            raise ValueError(message)
+            raise InstagramError(message, code=ErrorCode.INVALID_ARTIFACT)
 
 
 def _count_csv_rows(path: Path) -> int:
@@ -129,7 +132,7 @@ def _count_tool_dump_urls(path: Path) -> int:
     urls = payload.get("urls")
     if not isinstance(urls, list):
         message = "Authoritative artifact 'tool_dump.json' must contain a urls list"
-        raise TypeError(message)
+        raise InstagramError(message, code=ErrorCode.INVALID_ARTIFACT)
     return len(urls)
 
 
@@ -142,7 +145,7 @@ def inspect_closure_artifacts(output_dir: Path) -> ClosureArtifactInspection:
 
     Raises
     ------
-    ValueError
+    InstagramError
         Authoritative artifacts are missing, misclassified, or mismatched.
     """
     policy_by_name = classify_current_tree_artifacts(output_dir)
@@ -159,10 +162,10 @@ def inspect_closure_artifacts(output_dir: Path) -> ClosureArtifactInspection:
             f"{successful_shortcodes} successful shortcodes and "
             f"{failing_shortcodes} failing shortcodes"
         )
-        raise ValueError(message)
+        raise InstagramError(message, code=ErrorCode.AUDIT_FAILURE)
 
     return ClosureArtifactInspection(
-        authoritative_artifact_names=AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES,
+        authoritative_artifact_names=frozenset(AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES),
         successful_shortcodes=successful_shortcodes,
         failing_shortcodes=failing_shortcodes,
         expected_shortcodes=expected_shortcodes,

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.workflows.closure_artifacts import (
     AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES,
     NON_AUTHORITATIVE_COMPLETION_ARTIFACT_NAMES,
@@ -81,8 +82,7 @@ def test_inspect_closure_artifacts_uses_real_believerofbuckets_tree() -> None:
     assert inspection.failing_shortcodes == 1
     assert inspection.expected_shortcodes == 100
     assert (
-        inspection.authoritative_artifact_names
-        == AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES
+        inspection.authoritative_artifact_names == AUTHORITATIVE_CLOSURE_ARTIFACT_NAMES
     )
     assert policy_by_name["tool_dump.json"] == "retain"
     assert policy_by_name["posts.csv"] == "retain"
@@ -137,7 +137,7 @@ def test_inspect_closure_artifacts_rejects_missing_authoritative_artifact(
     (output_dir / "errors.csv").unlink()
 
     with pytest.raises(
-        ValueError,
+        InstagramError,
         match=re.escape("Missing authoritative artifact: errors.csv"),
     ):
         inspect_closure_artifacts(output_dir)
@@ -151,7 +151,7 @@ def test_validate_authoritative_artifact_policy_rejects_misclassification() -> N
     policy_by_name["posts.csv"] = "archive"
 
     with pytest.raises(
-        ValueError,
+        InstagramError,
         match=re.escape(
             "Authoritative artifact 'posts.csv' must use retain policy, got 'archive'",
         ),
@@ -177,7 +177,7 @@ def test_inspect_closure_artifacts_rejects_accounting_mismatch(tmp_path: Path) -
     )
 
     with pytest.raises(
-        ValueError,
+        InstagramError,
         match=re.escape(
             "Authoritative accounting mismatch: expected 2 shortcodes from "
             "tool_dump.json, found 1 successful shortcodes and 0 failing shortcodes",

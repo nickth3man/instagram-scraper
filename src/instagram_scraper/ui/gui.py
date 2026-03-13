@@ -163,7 +163,15 @@ class ScraperWorker:
                     "error_type": "instagram",
                 },
             )
-        except (LookupError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        except (
+            AttributeError,
+            KeyError,
+            LookupError,
+            OSError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             error_detail = traceback.format_exc()
             self.window.write_event_value(

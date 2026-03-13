@@ -90,10 +90,8 @@ def test_downloader_post_payload_writes_use_atomic_shared_io(
     write_post_metadata(post_dir, metadata)
 
     write_paths = {path.name for path, _ in writes}
-    assert write_paths == {"caption.txt", "comments.csv", "metadata.json"}
-    comments_csv = next(
-        content for path, content in writes if path.name == "comments.csv"
-    )
+    assert write_paths == {"caption.txt", "metadata.json"}
+    comments_csv = (post_dir / "comments.csv").read_text(encoding="utf-8")
     comments_rows = [line for line in comments_csv.splitlines() if line.strip()]
     assert comments_rows[0].startswith("media_id,shortcode,post_url,id")
     assert "MID4,SC4,https://www.instagram.com/p/SC4/,12" in comments_rows[1]

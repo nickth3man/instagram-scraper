@@ -60,6 +60,9 @@ class ErrorCode(StrEnum):
     FILE_WRITE_ERROR = "file_write_error"
     FILE_READ_ERROR = "file_read_error"
     FILE_EMPTY = "file_empty"
+    INVALID_ARTIFACT = "invalid_artifact"
+    AUDIT_FAILURE = "audit_failure"
+    MISSING_EXPORT_FILE = "missing_export_file"
 
     # Input Errors
     INPUT_MISSING_SHORTCODE = "input_missing_shortcode"

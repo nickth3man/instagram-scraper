@@ -6,6 +6,7 @@ Instaloader, designed to stop immediately on rate limits (429) rather than
 retrying. It processes URLs from a tool dump JSON file and outputs results
 to CSV files.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -180,7 +181,10 @@ def checkpoint_path(output_dir: Path) -> Path:
 
 
 def ensure_headers(
-    path: Path, fieldnames: list[str], *, reset: bool = False,
+    path: Path,
+    fieldnames: list[str],
+    *,
+    reset: bool = False,
 ) -> None:
     """Ensure CSV file exists with proper headers.
 
@@ -199,7 +203,9 @@ def ensure_headers(
 
 
 def append_row(
-    path: Path, fieldnames: list[str], row: dict[str, object],
+    path: Path,
+    fieldnames: list[str],
+    row: dict[str, object],
 ) -> None:
     """Append a single row to a CSV file.
 
@@ -249,7 +255,10 @@ def _validate_urls(payload: dict[str, object]) -> list[str]:
 
 
 def _write_post_row(
-    post: Post, post_url: str, output_dir: Path, post_fields: list[str],
+    post: Post,
+    post_url: str,
+    output_dir: Path,
+    post_fields: list[str],
 ) -> None:
     """Write post data to CSV.
 
@@ -278,7 +287,9 @@ def _write_post_row(
 
 
 def _write_comment_rows(
-    post: Post, output_dir: Path, comment_fields: list[str],
+    post: Post,
+    output_dir: Path,
+    comment_fields: list[str],
 ) -> None:
     """Write comment data to CSV.
 
