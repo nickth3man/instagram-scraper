@@ -1,7 +1,3 @@
-# Copyright (c) 2026
-"""Public package exports for instagram_scraper."""
+"""Instagram Profile Scraper."""
 
-# Re-export the Typer app and `main` for package consumers and console scripts.
-from .cli import app, main
-
-__all__ = ["app", "main"]
+__version__ = "0.1.0"
