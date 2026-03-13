@@ -19,12 +19,9 @@ except ImportError:
 
 from instagram_scraper.config import RetryConfig
 from instagram_scraper.error_codes import ErrorCode, error_code_from_status
-from instagram_scraper.infrastructure.env import load_project_env
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-load_project_env()
 
 
 __all__ = [

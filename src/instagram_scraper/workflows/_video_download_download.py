@@ -122,22 +122,24 @@ def _download_task(
         context.cfg,
     )
     if not ok:
-        _append_csv(
-            context.paths["errors_csv"],
-            context.paths["error_header"],
-            {
-                "shortcode": post.shortcode,
-                "media_id": post.media_id,
-                "post_url": post.post_url,
-                "stage": "download_video_file",
-                "error": download_error or "video_download_failed",
-            },
-        )
-        context.metrics["errors"] += 1
+        with context.metrics_lock:
+            _append_csv(
+                context.paths["errors_csv"],
+                context.paths["error_header"],
+                {
+                    "shortcode": post.shortcode,
+                    "media_id": post.media_id,
+                    "post_url": post.post_url,
+                    "stage": "download_video_file",
+                    "error": download_error or "video_download_failed",
+                },
+            )
+            context.metrics["errors"] += 1
         return None
     row = _index_row(post, task)
-    _append_csv(context.paths["index_csv"], context.paths["index_header"], row)
-    context.metrics["downloaded_files"] += 1
+    with context.metrics_lock:
+        _append_csv(context.paths["index_csv"], context.paths["index_header"], row)
+        context.metrics["downloaded_files"] += 1
     return row
 
 

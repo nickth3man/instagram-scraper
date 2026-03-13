@@ -4,6 +4,10 @@ import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("playwright")
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "extract_posts_browser.py"
 SPEC = spec_from_file_location("extract_posts_browser", SCRIPT_PATH)

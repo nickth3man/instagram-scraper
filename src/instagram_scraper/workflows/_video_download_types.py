@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ class _DownloadContext:
     metrics: _DownloadMetrics
     completed: set[str]
     download_sessions: DownloadSessionPool | None = None
+    metrics_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 @dataclass(frozen=True, slots=True)

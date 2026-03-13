@@ -10,7 +10,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError as _playwright_import_error:
+    _PLAYWRIGHT_MISSING_MSG = (
+        "playwright is required to run this script. "
+        "Install it with: pip install playwright && playwright install"
+    )
+    raise SystemExit(_PLAYWRIGHT_MISSING_MSG) from _playwright_import_error
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -55,8 +62,15 @@ def _extract_post_data(page: Page, url: str) -> dict[str, Any]:
         comment_match = re.search(r"(\d+(?:,\d+)*)\s+comments?", desc)
         if comment_match is not None:
             data["comment_count"] = int(comment_match.group(1).replace(",", ""))
-        if " - " in desc:
-            data["caption"] = desc.split(" - ")[0]
+        # Expected format: "N likes, M comments - username: \"caption text\""
+        caption_match = re.search(r'-\s+[^:]+:\s+"([^"]*)"', desc)
+        if caption_match is not None:
+            data["caption"] = caption_match.group(1)
+        elif " - " in desc:
+            remainder = desc.split(" - ", 1)[1]
+            colon_pos = remainder.find(": ")
+            if colon_pos != -1:
+                data["caption"] = remainder[colon_pos + 2 :].strip().strip('"')
 
     data["is_video"] = "video" in html.lower() and '"video_url"' in html
     data["typename"] = "GraphVideo" if data["is_video"] else "GraphImage"
