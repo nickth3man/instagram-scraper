@@ -1,7 +1,12 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "instagram-scraper"
 version = "0.1.0"
 description = "Instagram profile scraper - posts, reels, comments, likes + media download"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "instaloader>=4.15,<5",
@@ -13,4 +18,42 @@ dependencies = [
 instagram-scraper = "instagram_scraper.main:app"
 
 [dependency-groups]
-dev = ["ty>=0.0.22,<0.1"]
+dev = [
+    "pre-commit>=4.3.0,<5",
+    "pytest>=8.4.1,<9",
+    "pytest-cov>=6.2.1,<7",
+    "ruff>=0.12.10,<0.13",
+    "ty>=0.0.22,<0.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/instagram_scraper"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/instagram_scraper/main.py" = ["B008"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "--cov=instagram_scraper",
+    "--cov-report=term-missing",
+]
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+
+[tool.coverage.run]
+branch = true
+source = ["instagram_scraper"]
