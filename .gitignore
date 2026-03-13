@@ -16,3 +16,8 @@ Thumbs.db
 .idea/
 .vscode/
 /currentcookies.jsonc
+/.python-version
+/.tmp_ig_cookie.txt
+/test_data.ndjson
+/uv.lock
+/dist
