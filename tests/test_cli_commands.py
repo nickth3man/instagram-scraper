@@ -35,6 +35,32 @@ def test_urls_subcommand_invokes_pipeline(tmp_path, monkeypatch) -> None:
     assert called["mode"] == "urls"
 
 
+def test_url_subcommand_forwards_browser_html_options(monkeypatch) -> None:
+    runner = CliRunner()
+    called: dict[str, object] = {}
+
+    def fake_run(mode: str, **kwargs: object) -> int:
+        called["mode"] = mode
+        called["kwargs"] = kwargs
+        return 0
+
+    monkeypatch.setattr("instagram_scraper.cli.run_pipeline", fake_run)
+    result = runner.invoke(
+        app,
+        [
+            "scrape",
+            "--browser-html",
+            "url",
+            "--url",
+            "https://www.instagram.com/p/example/",
+        ],
+    )
+    assert result.exit_code == 0
+    assert called["mode"] == "url"
+    kwargs = called["kwargs"]
+    assert kwargs["browser_html"] is True
+
+
 def test_url_subcommand_passes_runtime_controls(monkeypatch) -> None:
     runner = CliRunner()
     called: dict[str, object] = {}

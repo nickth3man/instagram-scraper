@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 
 from instagram_scraper.providers.base import build_run_summary, build_target_record
 from instagram_scraper.workflows.browser_dump import run_url_scrape
+from instagram_scraper.workflows.browser_html import run_browser_html_scrape
 
 if TYPE_CHECKING:
     from instagram_scraper.models import RunSummary, TargetRecord
@@ -20,6 +21,17 @@ class _RuntimeKwargs(TypedDict, total=False):
     checkpoint_every: int
     min_delay: float
     max_delay: float
+
+
+class _BrowserRuntimeKwargs(TypedDict, total=False):
+    browser_html: bool
+    resume: bool
+    reset_output: bool
+    cookies_file: Path | None
+    storage_state: Path | None
+    user_data_dir: Path | None
+    headed: bool
+    timeout_ms: int
 
 
 class UrlScrapeProvider:
@@ -69,12 +81,11 @@ class UrlScrapeProvider:
         """
         shortcode = post_url.rstrip("/").split("/")[-1] or "url"
         destination = output_dir or Path("data") / shortcode
-        runtime = _runtime_kwargs(_)
-        result = run_url_scrape(
+        result = _run_urls(
             urls=[post_url],
             output_dir=destination,
             cookie_header=cookie_header,
-            **runtime,
+            runtime_kwargs=_,
         )
         return build_run_summary(
             "url",
@@ -108,14 +119,15 @@ class UrlScrapeProvider:
         """
         urls = _load_urls(input_path)
         destination = output_dir or Path("data") / "urls"
-        runtime = _runtime_kwargs(_)
-        result = run_url_scrape(
+        result = _run_urls(
             urls=urls,
             output_dir=destination,
             cookie_header=cookie_header,
-            resume=resume,
-            reset_output=reset_output,
-            **runtime,
+            runtime_kwargs={
+                **_,
+                "resume": resume,
+                "reset_output": reset_output,
+            },
         )
         return build_run_summary(
             "urls",
@@ -183,3 +195,44 @@ def _runtime_kwargs(kwargs: dict[str, object]) -> _RuntimeKwargs:
     if isinstance(max_delay, int | float):
         runtime["max_delay"] = float(max_delay)
     return runtime
+
+
+def _browser_runtime_kwargs(kwargs: dict[str, object]) -> _BrowserRuntimeKwargs:
+    runtime: _BrowserRuntimeKwargs = {}
+    browser_html = kwargs.get("browser_html")
+    if isinstance(browser_html, bool):
+        runtime["browser_html"] = browser_html
+    for name in ("resume", "reset_output", "headed"):
+        value = kwargs.get(name)
+        if isinstance(value, bool):
+            runtime[name] = value
+    timeout_ms = kwargs.get("timeout_ms")
+    if isinstance(timeout_ms, int):
+        runtime["timeout_ms"] = timeout_ms
+    for name in ("cookies_file", "storage_state", "user_data_dir"):
+        value = kwargs.get(name)
+        if isinstance(value, Path) or value is None:
+            runtime[name] = value
+    return runtime
+
+
+def _run_urls(
+    *,
+    urls: list[str],
+    output_dir: Path,
+    cookie_header: str,
+    runtime_kwargs: dict[str, object],
+) -> dict[str, object]:
+    browser_runtime = _browser_runtime_kwargs(runtime_kwargs)
+    if browser_runtime.get("browser_html", False):
+        return run_browser_html_scrape(
+            urls=urls,
+            output_dir=output_dir,
+            **browser_runtime,
+        )
+    return run_url_scrape(
+        urls=urls,
+        output_dir=output_dir,
+        cookie_header=cookie_header,
+        **_runtime_kwargs(runtime_kwargs),
+    )

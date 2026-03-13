@@ -9,6 +9,7 @@ import typer
 
 from instagram_scraper._cli_export_commands import register_export_commands
 from instagram_scraper._cli_options import (
+    BROWSER_HTML_OPTION,
     REPORT_COMPARE_OPTION,
     REPORT_INPUT_ARGUMENT,
     REPORT_OUTPUT_OPTION,
@@ -55,19 +56,22 @@ class InvalidComparisonDirectoriesError(typer.BadParameter):
 
 
 def configure_scrape(
-    ctx: typer.Context,
     *,
     raw_captures: bool | None = typer.Option(None, "--raw-captures/--no-raw-captures"),
     request_timeout: int = typer.Option(30, "--request-timeout"),
     max_retries: int = typer.Option(5, "--max-retries"),
     checkpoint_every: int = typer.Option(20, "--checkpoint-every"),
+    browser_html: bool = BROWSER_HTML_OPTION,
 ) -> None:
     """Capture shared runtime controls for scrape subcommands."""
+    ctx = cast("typer.Context", click.get_current_context())
+    resolved_browser_html = browser_html if isinstance(browser_html, bool) else False
     ctx.obj = {
         "raw_captures": raw_captures if raw_captures is not None else False,
         "request_timeout": request_timeout,
         "max_retries": max_retries,
         "checkpoint_every": checkpoint_every,
+        "browser_html": resolved_browser_html,
     }
 
 

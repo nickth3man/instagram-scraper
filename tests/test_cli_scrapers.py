@@ -165,6 +165,38 @@ def test_scrape_urls_with_resume_and_reset(
     mock_pipeline.assert_called_once_with("urls", **expected)
 
 
+def test_scrape_urls_browser_html_options(
+    mock_pipeline: MagicMock,
+    tmp_path: Path,
+) -> None:
+    input_file = tmp_path / "urls.json"
+    input_file.write_text('{"urls": []}')
+
+    result = runner.invoke(
+        app,
+        [
+            "scrape",
+            "--browser-html",
+            "urls",
+            "--input",
+            str(input_file),
+        ],
+    )
+
+    assert result.exit_code == 0
+    expected = {
+        **DEFAULT_SHARED_OPTIONS,
+        "input_path": input_file,
+        "output_dir": None,
+        "resume": False,
+        "reset_output": False,
+        "cookie_header": "",
+        "has_auth": False,
+        "browser_html": True,
+    }
+    mock_pipeline.assert_called_once_with("urls", **expected)
+
+
 def test_scrape_urls_missing_input() -> None:
     result = runner.invoke(app, ["scrape", "urls"])
 

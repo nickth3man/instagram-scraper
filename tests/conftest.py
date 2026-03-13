@@ -21,6 +21,7 @@ DEFAULT_SHARED_OPTIONS = {
     "request_timeout": 30,
     "max_retries": 5,
     "checkpoint_every": 20,
+    "browser_html": False,
 }
 
 

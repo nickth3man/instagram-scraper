@@ -37,9 +37,15 @@ def test_scrape_app_has_subcommands() -> None:
 # Test configure_scrape callback
 
 
-def test_configure_scrape_default_values(mock_context: MagicMock) -> None:
+def test_configure_scrape_default_values(
+    mock_context: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "instagram_scraper.cli.click.get_current_context",
+        lambda: mock_context,
+    )
     configure_scrape(
-        mock_context,
         raw_captures=None,
         request_timeout=30,
         max_retries=5,
@@ -49,9 +55,15 @@ def test_configure_scrape_default_values(mock_context: MagicMock) -> None:
     assert mock_context.obj == DEFAULT_SHARED_OPTIONS
 
 
-def test_configure_scrape_with_raw_captures(mock_context: MagicMock) -> None:
+def test_configure_scrape_with_raw_captures(
+    mock_context: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "instagram_scraper.cli.click.get_current_context",
+        lambda: mock_context,
+    )
     configure_scrape(
-        mock_context,
         raw_captures=True,
         request_timeout=60,
         max_retries=10,
@@ -63,6 +75,7 @@ def test_configure_scrape_with_raw_captures(mock_context: MagicMock) -> None:
         "request_timeout": 60,
         "max_retries": 10,
         "checkpoint_every": 50,
+        "browser_html": False,
     }
 
 

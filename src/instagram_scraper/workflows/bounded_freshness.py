@@ -11,11 +11,10 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, cast, override
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from instaloader import Instaloader, Post
+from instaloader import Post
 from instaloader.exceptions import BadResponseException, InstaloaderException
-from instaloader.instaloadercontext import RateController
 from requests import RequestException
 
 from instagram_scraper.infrastructure.env import load_project_env
@@ -23,6 +22,11 @@ from instagram_scraper.infrastructure.files import atomic_write_text
 from instagram_scraper.infrastructure.instagram_http import (
     build_instagram_client,
     get_json_payload,
+)
+from instagram_scraper.workflows._instaloader_failfast import (
+    FailFastBadResponseRateController,
+    build_failfast_instaloader,
+    cookie_dict,
 )
 
 if TYPE_CHECKING:
@@ -48,13 +52,6 @@ class _VerificationCheck(Protocol):
         cookie_header: str,
         timeout_seconds: float,
     ) -> _CheckResult: ...
-
-
-class _FailFastRateController(RateController):
-    @override
-    def handle_429(self, query_type: str) -> None:
-        msg = f"fail-fast-429:{query_type}"
-        raise BadResponseException(msg)
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,22 +226,13 @@ def _run_instaloader_shortcode_check(
     timeout_seconds: float,
 ) -> _CheckResult:
     started = time.monotonic()
-    cookies = _cookie_dict(cookie_header)
+    cookies = cookie_dict(cookie_header)
     username = cookies.get("ds_user_id", "session")
-    loader = Instaloader(
+    loader = build_failfast_instaloader(
         dirname_pattern="{target}",
-        filename_pattern=INSTALOADER_FILENAME_PATTERN,
-        download_pictures=False,
-        download_videos=False,
-        download_video_thumbnails=False,
-        download_comments=False,
-        save_metadata=False,
-        compress_json=False,
-        quiet=True,
-        sleep=False,
-        max_connection_attempts=1,
+        download_media=False,
         request_timeout=timeout_seconds,
-        rate_controller=_FailFastRateController,
+        rate_controller=FailFastBadResponseRateController,
     )
     loader.load_session(username, cookies)
     try:
@@ -332,15 +320,6 @@ def _shortcode_api_response_result(
 
 def _unexpected_success_detail(shortcode: str, *, extra: str) -> str:
     return f"shortcode_resolved:{shortcode}:{extra}"
-
-
-def _cookie_dict(cookie_header: str) -> dict[str, str]:
-    return {
-        key.strip(): value.strip()
-        for part in cookie_header.split(";")
-        if "=" in part
-        for key, value in [part.split("=", 1)]
-    }
 
 
 def _build_payload(

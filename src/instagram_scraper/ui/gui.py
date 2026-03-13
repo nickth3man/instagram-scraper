@@ -7,7 +7,7 @@ import contextlib
 import threading
 import traceback
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any
 
 import FreeSimpleGUI
 
@@ -29,6 +29,21 @@ from instagram_scraper.exceptions import (
 )
 from instagram_scraper.infrastructure.logging import get_logger
 from instagram_scraper.ui import layout as gui_layout
+from instagram_scraper.ui._window_elements import (
+    append_log as _append_log,
+)
+from instagram_scraper.ui._window_elements import (
+    element as _element,
+)
+from instagram_scraper.ui._window_elements import (
+    password_input as _password_input,
+)
+from instagram_scraper.ui._window_elements import (
+    progress_bar as _progress_bar,
+)
+from instagram_scraper.ui._window_elements import (
+    set_status as _set_status,
+)
 
 logger = get_logger(__name__)
 
@@ -43,42 +58,6 @@ EVENT_SCRAPE_COMPLETE = "-SCRAPE-COMPLETE-"
 EVENT_SCRAPE_ERROR = "-SCRAPE-ERROR-"
 EVENT_LOG_UPDATE = "-LOG-UPDATE-"
 EVENT_PROGRESS_UPDATE = "-PROGRESS-UPDATE-"
-
-
-class _ElementWithUpdate(Protocol):
-    def update(self, value: object | None = None, **kwargs: object) -> object: ...
-
-
-class _ProgressBarElement(Protocol):
-    def update_bar(
-        self,
-        current_count: int,
-        maximum: int | None = None,
-    ) -> object: ...
-
-
-class _PasswordInputElement(_ElementWithUpdate, Protocol):
-    PasswordCharacter: str | None
-
-
-def _element(window: FreeSimpleGUI.Window, key: str) -> _ElementWithUpdate:
-    return cast("_ElementWithUpdate", window[key])
-
-
-def _progress_bar(window: FreeSimpleGUI.Window) -> _ProgressBarElement:
-    return cast("_ProgressBarElement", window["-PROGRESS-BAR-"])
-
-
-def _password_input(window: FreeSimpleGUI.Window) -> _PasswordInputElement:
-    return cast("_PasswordInputElement", window["-COOKIE-HEADER-"])
-
-
-def _append_log(window: FreeSimpleGUI.Window, message: str) -> None:
-    _element(window, "-LOG-OUTPUT-").update(f"{message}\n", append=True)
-
-
-def _set_status(window: FreeSimpleGUI.Window, text: str, *, color: str) -> None:
-    _element(window, "-STATUS-TEXT-").update(text, text_color=color)
 
 
 class ScraperWorker:

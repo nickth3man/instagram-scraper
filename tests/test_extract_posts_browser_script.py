@@ -1,18 +1,6 @@
-from __future__ import annotations
-
-import sys
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_PATH = ROOT / "scripts" / "extract_posts_browser.py"
-SPEC = spec_from_file_location("extract_posts_browser", SCRIPT_PATH)
-if SPEC is None or SPEC.loader is None:
-    message = f"Unable to load script module from {SCRIPT_PATH}"
-    raise RuntimeError(message)
-extract_posts_browser = module_from_spec(SPEC)
-sys.modules["extract_posts_browser"] = extract_posts_browser
-SPEC.loader.exec_module(extract_posts_browser)
+from instagram_scraper.workflows import browser_html
 
 
 def test_extract_post_row_from_html_uses_embedded_json_values() -> None:
@@ -32,7 +20,7 @@ def test_extract_post_row_from_html_uses_embedded_json_values() -> None:
     </html>
     """
 
-    row = extract_posts_browser._extract_post_row_from_html(
+    row = browser_html.extract_post_row_from_html(
         html,
         "https://www.instagram.com/p/abc123/",
     )
@@ -64,7 +52,7 @@ def test_extract_post_row_from_html_falls_back_to_meta_description() -> None:
     </html>
     """
 
-    row = extract_posts_browser._extract_post_row_from_html(
+    row = browser_html.extract_post_row_from_html(
         html,
         "https://www.instagram.com/p/meta123/",
     )
@@ -99,7 +87,7 @@ def test_load_playwright_cookies_supports_jsonc(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    cookies = extract_posts_browser._load_playwright_cookies(cookie_file)
+    cookies = browser_html.load_playwright_cookies(cookie_file)
 
     assert cookies == [
         {

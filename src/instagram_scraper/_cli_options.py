@@ -5,6 +5,8 @@ from pathlib import Path
 
 import typer
 
+DEFAULT_BROWSER_HTML = False
+
 USERNAME_OPTION = typer.Option(..., "--username")
 URL_OPTION = typer.Option(..., "--url", "--post-url")
 HASHTAG_OPTION = typer.Option(..., "--hashtag")
@@ -21,6 +23,11 @@ COOKIE_HEADER_OPTION = typer.Option(
         "Instagram cookie header. Prefer IG_COOKIE_HEADER in your environment "
         "or .env file."
     ),
+)
+BROWSER_HTML_OPTION = typer.Option(
+    DEFAULT_BROWSER_HTML,
+    "--browser-html/--no-browser-html",
+    help="Use Playwright-rendered browser HTML instead of the HTTP URL workflow.",
 )
 RESUME_OPTION = typer.Option(None, "--resume/--no-resume")
 RESET_OUTPUT_OPTION = typer.Option(None, "--reset-output/--no-reset-output")

@@ -89,6 +89,17 @@ uv run instagram-scraper-browser-dump
 uv run instagram-scraper-download-videos
 ```
 
+Workflow modules and developer utilities now live under
+`src/instagram_scraper/workflows/` rather than a separate `scripts/` directory.
+Run them directly when you need the lower-level entrypoints:
+
+```bash
+uv run python -m instagram_scraper.workflows.browser_html data/tool_dump.json
+uv run python -m instagram_scraper.workflows.failfast_instaloader --help
+uv run python -m instagram_scraper.workflows.generate_extraction_commands
+uv run scalene -m instagram_scraper.workflows.profile_profiler -- profile --username example
+```
+
 ## Project Structure
 
 ```text
@@ -96,7 +107,6 @@ uv run instagram-scraper-download-videos
 ├── src/instagram_scraper/
 ├── tests/
 ├── docs/
-├── scripts/
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
