@@ -1,8 +1,7 @@
 from pathlib import Path
-import pandas as pd
+
 import instaloader
-from datetime import datetime
-from typing import Optional
+import pandas as pd
 
 
 def sanitize_folder_name(name: str) -> str:
@@ -13,7 +12,9 @@ def sanitize_folder_name(name: str) -> str:
     return name.strip()[:50]
 
 
-def scrape_profile(username: str, limit: int = 10, output_dir: Optional[Path] = None):
+def scrape_profile(
+    username: str, limit: int = 10, output_dir: Path | None = None
+) -> None:
     if output_dir is None:
         output_dir = Path("data") / username
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +72,9 @@ def scrape_profile(username: str, limit: int = 10, output_dir: Optional[Path] = 
                     {
                         "username": comment.owner.username,
                         "comment_text": comment.text,
-                        "timestamp": comment.created_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                        "timestamp": comment.created_at_utc.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
                         "likes": comment.likes_count,
                     }
                 )
@@ -82,7 +85,7 @@ def scrape_profile(username: str, limit: int = 10, output_dir: Optional[Path] = 
             pd.DataFrame(comments_data).to_csv(post_dir / "comments.csv", index=False)
         else:
             pd.DataFrame(
-                columns=["username", "comment_text", "timestamp", "likes"]
+                columns=pd.Index(["username", "comment_text", "timestamp", "likes"])
             ).to_csv(post_dir / "comments.csv", index=False)
 
         # === Likes ===
@@ -97,7 +100,7 @@ def scrape_profile(username: str, limit: int = 10, output_dir: Optional[Path] = 
         if likes_data:
             pd.DataFrame(likes_data).to_csv(post_dir / "likes.csv", index=False)
         else:
-            pd.DataFrame(columns=["username"]).to_csv(
+            pd.DataFrame(columns=pd.Index(["username"])).to_csv(
                 post_dir / "likes.csv", index=False
             )
 

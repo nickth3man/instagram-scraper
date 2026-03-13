@@ -1,5 +1,7 @@
-import typer
 from pathlib import Path
+
+import typer
+
 from .scraper import scrape_profile
 
 app = typer.Typer(help="Instagram Profile Scraper")
