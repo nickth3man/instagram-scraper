@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 DEFAULT_BROWSER_HTML = False
+DEFAULT_BROWSER_HEADED = False
 
 USERNAME_OPTION = typer.Option(..., "--username")
 URL_OPTION = typer.Option(..., "--url", "--post-url")
@@ -28,6 +29,31 @@ BROWSER_HTML_OPTION = typer.Option(
     DEFAULT_BROWSER_HTML,
     "--browser-html/--no-browser-html",
     help="Use Playwright-rendered browser HTML instead of the HTTP URL workflow.",
+)
+BROWSER_COOKIES_FILE_OPTION = typer.Option(
+    None,
+    "--cookies-file",
+    help="Cookies JSON/JSONC file for browser HTML scraping.",
+)
+BROWSER_STORAGE_STATE_OPTION = typer.Option(
+    None,
+    "--storage-state",
+    help="Playwright storage state file for browser HTML scraping.",
+)
+BROWSER_USER_DATA_DIR_OPTION = typer.Option(
+    None,
+    "--user-data-dir",
+    help="Persistent Chromium profile directory for browser HTML scraping.",
+)
+BROWSER_HEADED_OPTION = typer.Option(
+    DEFAULT_BROWSER_HEADED,
+    "--headed/--headless",
+    help="Run browser HTML scraping with a visible browser window.",
+)
+BROWSER_TIMEOUT_MS_OPTION = typer.Option(
+    30000,
+    "--timeout-ms",
+    help="Browser HTML navigation timeout in milliseconds.",
 )
 RESUME_OPTION = typer.Option(None, "--resume/--no-resume")
 RESET_OUTPUT_OPTION = typer.Option(None, "--reset-output/--no-reset-output")

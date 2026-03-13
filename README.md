@@ -70,6 +70,7 @@ Shared options implemented today:
 --output-dir
 --limit
 --cookie-header  # optional override; prefer IG_COOKIE_HEADER or .env
+--browser-html   # switch url/urls scraping to instagram_scraper.workflows.browser_html
 ```
 
 Additional mode-specific support:
@@ -94,6 +95,8 @@ Workflow modules and developer utilities now live under
 Run them directly when you need the lower-level entrypoints:
 
 ```bash
+uv run instagram-scraper scrape --browser-html url --url https://www.instagram.com/p/example/
+uv run instagram-scraper scrape --browser-html urls --input data/tool_dump.json --cookies-file currentcookies.jsonc
 uv run python -m instagram_scraper.workflows.browser_html data/tool_dump.json
 uv run python -m instagram_scraper.workflows.failfast_instaloader --help
 uv run python -m instagram_scraper.workflows.generate_extraction_commands

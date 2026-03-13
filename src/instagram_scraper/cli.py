@@ -65,13 +65,14 @@ def configure_scrape(
 ) -> None:
     """Capture shared runtime controls for scrape subcommands."""
     ctx = cast("typer.Context", click.get_current_context())
-    resolved_browser_html = browser_html if isinstance(browser_html, bool) else False
+    existing = ctx.obj if isinstance(ctx.obj, dict) else {}
     ctx.obj = {
+        **existing,
         "raw_captures": raw_captures if raw_captures is not None else False,
         "request_timeout": request_timeout,
         "max_retries": max_retries,
         "checkpoint_every": checkpoint_every,
-        "browser_html": resolved_browser_html,
+        "browser_html": browser_html,
     }
 
 
@@ -79,14 +80,27 @@ def _current_context() -> typer.Context:
     return cast("typer.Context", click.get_current_context())
 
 
-def _pipeline_kwargs(**kwargs: object) -> dict[str, object]:
+def _pipeline_kwargs(mode: str, **kwargs: object) -> dict[str, object]:
     ctx = _current_context()
-    shared = ctx.obj if isinstance(ctx.obj, dict) else {}
+    shared = dict(ctx.obj) if isinstance(ctx.obj, dict) else {}
+    browser_defaults = {
+        "cookies_file": None,
+        "storage_state": None,
+        "user_data_dir": None,
+        "headed": False,
+        "timeout_ms": 30000,
+    }
+    if mode in {"url", "urls"}:
+        for key, value in browser_defaults.items():
+            shared.setdefault(key, value)
+    else:
+        for key in browser_defaults:
+            shared.pop(key, None)
     return {**shared, **kwargs}
 
 
 def _run(mode: str, **kwargs: object) -> None:
-    raise typer.Exit(run_pipeline(mode, **_pipeline_kwargs(**kwargs)))
+    raise typer.Exit(run_pipeline(mode, **_pipeline_kwargs(mode, **kwargs)))
 
 
 scrape_app.callback()(configure_scrape)

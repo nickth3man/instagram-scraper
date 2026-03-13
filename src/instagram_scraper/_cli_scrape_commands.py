@@ -14,8 +14,6 @@ from instagram_scraper._cli_options import (
     LOCATION_OPTION,
     OUTPUT_DIR_OPTION,
     POSTS_LIMIT_OPTION,
-    RESET_OUTPUT_OPTION,
-    RESUME_OPTION,
     STORIES_HASHTAG_OPTION,
     STORIES_SEED_MESSAGE,
     STORIES_USERNAME_OPTION,
@@ -28,6 +26,38 @@ class RunFn(Protocol):
     """Callable wrapper used to invoke the pipeline from command handlers."""
 
     def __call__(self, mode: str, **kwargs: object) -> None: ...
+
+
+def _extra_runtime_args(args: list[str]) -> dict[str, object]:
+    runtime: dict[str, object] = {}
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"--resume", "--reset-output", "--headed"}:
+            runtime[arg.removeprefix("--").replace("-", "_")] = True
+            index += 1
+            continue
+        if arg in {"--no-resume", "--no-reset-output", "--headless"}:
+            key = arg.removeprefix("--no-").replace("-", "_")
+            if arg == "--headless":
+                key = "headed"
+            runtime[key] = False
+            index += 1
+            continue
+        if index + 1 >= len(args):
+            message = f"Missing value for {arg}"
+            raise typer.BadParameter(message)
+        value = args[index + 1]
+        if arg == "--cookies-file":
+            runtime["cookies_file"] = Path(value)
+        elif arg == "--storage-state":
+            runtime["storage_state"] = Path(value)
+        elif arg == "--user-data-dir":
+            runtime["user_data_dir"] = Path(value)
+        elif arg == "--timeout-ms":
+            runtime["timeout_ms"] = int(value)
+        index += 2
+    return runtime
 
 
 def _run_with_cookie(
@@ -74,8 +104,12 @@ def _register_primary_scrape_commands(
         """Run unified profile scraping."""
         run("profile", username=username, output_dir=output_dir)
 
-    @scrape_app.command("url")
+    @scrape_app.command(
+        "url",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
     def scrape_url(
+        ctx: typer.Context,
         *,
         post_url: str = URL_OPTION,
         output_dir: Path | None = OUTPUT_DIR_OPTION,
@@ -88,26 +122,33 @@ def _register_primary_scrape_commands(
             post_url=post_url,
             output_dir=output_dir,
             cookie_header=cookie_header,
+            **_extra_runtime_args(ctx.args),
         )
 
-    @scrape_app.command("urls")
+    @scrape_app.command(
+        "urls",
+        context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    )
     def scrape_urls(
+        ctx: typer.Context,
         *,
         input_path: Path = INPUT_OPTION,
         output_dir: Path | None = OUTPUT_DIR_OPTION,
-        resume: bool | None = RESUME_OPTION,
-        reset_output: bool | None = RESET_OUTPUT_OPTION,
         cookie_header: str = COOKIE_HEADER_OPTION,
     ) -> None:
         """Run unified multi-URL scraping."""
+        runtime = _extra_runtime_args(ctx.args)
+        resume = bool(runtime.pop("resume", False))
+        reset_output = bool(runtime.pop("reset_output", False))
         _run_with_cookie(
             run,
             "urls",
             input_path=input_path,
             output_dir=output_dir,
             cookie_header=cookie_header,
-            resume=bool(resume),
-            reset_output=bool(reset_output),
+            resume=resume,
+            reset_output=reset_output,
+            **runtime,
         )
 
     @scrape_app.command("hashtag")
