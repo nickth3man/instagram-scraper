@@ -234,8 +234,8 @@ def _run_instaloader_shortcode_check(
         request_timeout=timeout_seconds,
         rate_controller=FailFastBadResponseRateController,
     )
-    loader.load_session(username, cookies)
     try:
+        loader.load_session(username, cookies)
         post = Post.from_shortcode(loader.context, shortcode)
     except (BadResponseException, InstaloaderException, KeyError, ValueError) as exc:
         return _CheckResult(

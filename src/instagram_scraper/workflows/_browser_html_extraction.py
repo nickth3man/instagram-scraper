@@ -7,6 +7,7 @@ import json
 import re
 from html import unescape
 from typing import TYPE_CHECKING, Any, TypedDict
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -15,8 +16,9 @@ if TYPE_CHECKING:
     from instagram_scraper.workflows._browser_dump_types import _PostRow
 
 Page = Any
-INSTAGRAM_URL_PATTERN = re.compile(r"https://www\.instagram\.com/(?:p|reel)/[^/]+/?")
-SHORTCODE_PATTERN = re.compile(r"/(?:p|reel)/([^/]+)/?$")
+INSTAGRAM_URL_PATTERN = re.compile(
+    r"https://(?:www\.)?instagram\.com/(?:p|reel)/[^/?#]+/?(?:\?[^#]*)?(?:#.*)?",
+)
 META_PATTERN_TEMPLATE = r'<meta[^>]+{attribute}="{name}"[^>]+content="([^"]*)"[^>]*>'
 
 
@@ -157,8 +159,8 @@ def _playwright_cookie(payload: dict[str, object]) -> dict[str, Any] | None:
 
 
 def _extract_shortcode(url: str) -> str | None:
-    match = SHORTCODE_PATTERN.search(url)
-    return None if match is None else match.group(1)
+    parts = [part for part in urlsplit(url).path.split("/") if part]
+    return parts[-1] if parts else None
 
 
 def _extract_caption(html: str) -> str | None:

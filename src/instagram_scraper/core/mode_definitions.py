@@ -100,16 +100,7 @@ def _url_run(kwargs: _ModeKwargs) -> RunSummary:
                 if _optional_float(kwargs, "max_delay") is not None
                 else 0.2
             ),
-            browser_html=bool(kwargs.get("browser_html", False)),
-            cookies_file=_optional_path(kwargs, "cookies_file"),
-            storage_state=_optional_path(kwargs, "storage_state"),
-            user_data_dir=_optional_path(kwargs, "user_data_dir"),
-            headed=bool(kwargs.get("headed", False)),
-            timeout_ms=(
-                _optional_int(kwargs, "timeout_ms")
-                if _optional_int(kwargs, "timeout_ms") is not None
-                else 30000
-            ),
+            **_browser_kwargs(kwargs),
         ),
     )
 
@@ -167,18 +158,24 @@ def _urls_run(kwargs: _ModeKwargs) -> RunSummary:
                 if _optional_float(kwargs, "max_delay") is not None
                 else 0.2
             ),
-            browser_html=bool(kwargs.get("browser_html", False)),
-            cookies_file=_optional_path(kwargs, "cookies_file"),
-            storage_state=_optional_path(kwargs, "storage_state"),
-            user_data_dir=_optional_path(kwargs, "user_data_dir"),
-            headed=bool(kwargs.get("headed", False)),
-            timeout_ms=(
-                _optional_int(kwargs, "timeout_ms")
-                if _optional_int(kwargs, "timeout_ms") is not None
-                else 30000
-            ),
+            **_browser_kwargs(kwargs),
         ),
     )
+
+
+def _browser_kwargs(kwargs: _ModeKwargs) -> dict[str, object]:
+    return {
+        "browser_html": bool(kwargs.get("browser_html", False)),
+        "cookies_file": _optional_path(kwargs, "cookies_file"),
+        "storage_state": _optional_path(kwargs, "storage_state"),
+        "user_data_dir": _optional_path(kwargs, "user_data_dir"),
+        "headed": bool(kwargs.get("headed", False)),
+        "timeout_ms": (
+            _optional_int(kwargs, "timeout_ms")
+            if _optional_int(kwargs, "timeout_ms") is not None
+            else 30000
+        ),
+    }
 
 
 def _hashtag_targets(kwargs: _ModeKwargs) -> list[TargetRecord]:

@@ -197,6 +197,15 @@ def _runtime_kwargs(kwargs: dict[str, object]) -> _RuntimeKwargs:
     return runtime
 
 
+def _optional_browser_path(value: object) -> Path | None:
+    if value is None:
+        return None
+    candidate = Path(value) if isinstance(value, str) else value
+    if isinstance(candidate, Path) and candidate != Path():
+        return candidate
+    return None
+
+
 def _browser_runtime_kwargs(kwargs: dict[str, object]) -> _BrowserRuntimeKwargs:
     runtime: _BrowserRuntimeKwargs = {}
     browser_html = kwargs.get("browser_html")
@@ -210,9 +219,7 @@ def _browser_runtime_kwargs(kwargs: dict[str, object]) -> _BrowserRuntimeKwargs:
     if isinstance(timeout_ms, int):
         runtime["timeout_ms"] = timeout_ms
     for name in ("cookies_file", "storage_state", "user_data_dir"):
-        value = kwargs.get(name)
-        if isinstance(value, Path) or value is None:
-            runtime[name] = value
+        runtime[name] = _optional_browser_path(kwargs.get(name))
     return runtime
 
 
@@ -234,5 +241,7 @@ def _run_urls(
         urls=urls,
         output_dir=output_dir,
         cookie_header=cookie_header,
+        resume=browser_runtime.get("resume", False),
+        reset_output=browser_runtime.get("reset_output", False),
         **_runtime_kwargs(runtime_kwargs),
     )

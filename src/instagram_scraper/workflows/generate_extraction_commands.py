@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from instagram_scraper.workflows._workflow_inputs import load_tool_dump_urls
 
 DEFAULT_INPUT_PATH = Path("data") / "believerofbuckets" / "tool_dump.json"
 DEFAULT_LIMIT = 20
@@ -43,16 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _load_urls(input_path: Path, *, limit: int) -> list[str]:
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        message = f"Expected a JSON object in {input_path}"
-        raise TypeError(message)
-    raw_urls = payload.get("urls")
-    if not isinstance(raw_urls, list):
-        message = f"Expected 'urls' to be a list in {input_path}"
-        raise TypeError(message)
-    resolved_limit = max(limit, 0)
-    return [url for url in raw_urls[:resolved_limit] if isinstance(url, str)]
+    return load_tool_dump_urls(input_path, limit=limit)
 
 
 def _render_instructions(urls: list[str]) -> str:

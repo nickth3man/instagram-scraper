@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.infrastructure.files import atomic_write_text
 from instagram_scraper.workflows._browser_dump_cli import _validate_instagram_post_urls
 from instagram_scraper.workflows._browser_dump_io import (
@@ -34,6 +36,7 @@ from instagram_scraper.workflows._browser_html_extraction import (
     _extract_shortcode,
     _load_playwright_cookies,
 )
+from instagram_scraper.workflows._workflow_inputs import load_tool_dump_urls
 
 if TYPE_CHECKING:
     from instagram_scraper.workflows._browser_dump_types import (
@@ -100,13 +103,13 @@ def run_browser_html_scrape(
 
     Raises
     ------
-    RuntimeError
-        Raised when Playwright is not installed.
+    InstagramError
+        If Playwright is not installed.
     """
     _validate_instagram_post_urls(urls)
     if sync_playwright is None:
         message = "Playwright is required for browser HTML scraping"
-        raise RuntimeError(message)
+        raise InstagramError(message, code=ErrorCode.INVALID_ARTIFACT)
 
     resolved = _runtime_kwargs(runtime)
     output_paths = _prepare_output(
@@ -276,37 +279,50 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _runtime_int(value: object, *, minimum: int = 0) -> int | None:
+    return max(value, minimum) if isinstance(value, int) else None
+
+
+def _runtime_path(value: object) -> Path | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip():
+        return Path(value)
+    if isinstance(value, Path) and value != Path():
+        return value
+    return None
+
+
 def _runtime_kwargs(kwargs: dict[str, object]) -> _BrowserRunKwargs:
     runtime: _BrowserRunKwargs = {}
     for name in ("resume", "reset_output", "headed"):
         value = kwargs.get(name)
         if isinstance(value, bool):
             runtime[name] = value
-    for name in ("start_index", "checkpoint_every", "timeout_ms"):
-        value = kwargs.get(name)
-        if isinstance(value, int):
-            runtime[name] = value
+    start_index = _runtime_int(kwargs.get("start_index"), minimum=0)
+    if start_index is not None:
+        runtime["start_index"] = start_index
+    checkpoint_every = _runtime_int(kwargs.get("checkpoint_every"), minimum=1)
+    if checkpoint_every is not None:
+        runtime["checkpoint_every"] = checkpoint_every
+    timeout_ms = _runtime_int(kwargs.get("timeout_ms"), minimum=1)
+    if timeout_ms is not None:
+        runtime["timeout_ms"] = timeout_ms
     limit = kwargs.get("limit")
-    if isinstance(limit, int) or limit is None:
-        runtime["limit"] = limit
+    if isinstance(limit, int):
+        runtime["limit"] = max(limit, 0)
+    elif limit is None:
+        runtime["limit"] = None
     for name in ("cookies_file", "storage_state", "user_data_dir"):
-        value = kwargs.get(name)
-        if isinstance(value, Path) or value is None:
-            runtime[name] = value
+        runtime[name] = _runtime_path(kwargs.get(name))
     return runtime
 
 
 def _load_urls(input_path: Path) -> list[str]:
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        message = f"Expected a JSON object in {input_path}"
-        raise TypeError(message)
-    raw_urls = payload.get("urls")
-    if not isinstance(raw_urls, list):
-        message = f"Expected 'urls' to be a list in {input_path}"
-        raise TypeError(message)
-    urls = [item for item in raw_urls if isinstance(item, str)]
-    return [url for url in urls if INSTAGRAM_URL_PATTERN.fullmatch(url)]
+    return load_tool_dump_urls(
+        input_path,
+        validator=lambda url: INSTAGRAM_URL_PATTERN.fullmatch(url) is not None,
+    )
 
 
 def _build_context(

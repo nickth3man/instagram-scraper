@@ -9,6 +9,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from urllib.parse import urlsplit
 
 from instaloader import Post
 from instaloader.exceptions import (
@@ -17,11 +18,13 @@ from instaloader.exceptions import (
     TooManyRequestsException,
 )
 
+from instagram_scraper.config import OutputConfig, ScraperConfig
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.infrastructure.files import (
     append_csv_row,
     atomic_write_text,
     ensure_csv_with_header,
-    load_json_dict,
 )
 from instagram_scraper.workflows._instaloader_failfast import (
     FailFastTooManyRequestsRateController,
@@ -30,6 +33,7 @@ from instagram_scraper.workflows._instaloader_failfast import (
     cookie_dict,
     load_cookie_header,
 )
+from instagram_scraper.workflows._workflow_inputs import load_tool_dump_urls
 from instagram_scraper.workflows.profile import (
     COMMENTS_CSV_FIELDNAMES,
     POSTS_CSV_FIELDNAMES,
@@ -49,11 +53,9 @@ class Config:
     """Runtime configuration for fail-fast URL scraping."""
 
     input_path: Path
-    output_dir: Path
+    scraper: ScraperConfig
     start_index: int
-    limit: int | None
     download_media: bool
-    should_reset_output: bool
 
 
 __all__ = ["Config", "main", "parse_args", "run"]
@@ -76,13 +78,21 @@ def parse_args() -> Config:
     parser.add_argument("--download-media", action="store_true")
     parser.add_argument("--reset-output", action="store_true")
     args = parser.parse_args()
+    if args.start_index < 0:
+        parser.error("--start-index must be non-negative")
+    if args.limit is not None and args.limit < 0:
+        parser.error("--limit must be non-negative")
     return Config(
         input_path=args.input,
-        output_dir=args.output_dir,
+        scraper=ScraperConfig(
+            output=OutputConfig(
+                output_dir=args.output_dir,
+                should_reset_output=args.reset_output,
+            ),
+            limit=args.limit,
+        ),
         start_index=args.start_index,
-        limit=args.limit,
         download_media=args.download_media,
-        should_reset_output=args.reset_output,
     )
 
 
@@ -93,19 +103,20 @@ def run(cfg: Config) -> dict[str, object]:
     -------
         Summary dictionary describing the processed range and written artifacts.
     """
-    cfg.output_dir.mkdir(parents=True, exist_ok=True)
-    _ensure_outputs(cfg.output_dir, reset_output=cfg.should_reset_output)
+    output_dir = cfg.scraper.output.output_dir
+    cfg.scraper.output.output_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_outputs(output_dir, reset_output=cfg.scraper.output.should_reset_output)
     urls = _load_urls(cfg.input_path)
     cookies = cookie_dict(load_cookie_header())
     username = cookies.get("ds_user_id", "session")
     loader = build_failfast_instaloader(
-        dirname_pattern=str(cfg.output_dir / "downloads" / "{target}"),
+        dirname_pattern=str(output_dir / "downloads" / "{target}"),
         download_media=cfg.download_media,
         rate_controller=FailFastTooManyRequestsRateController,
     )
     loader.load_session(username, cookies)
 
-    end_index = _end_index(cfg.start_index, cfg.limit, len(urls))
+    end_index = _end_index(cfg.start_index, cfg.scraper.limit, len(urls))
     processed = 0
     for index in range(cfg.start_index, end_index):
         processed += _process_url(
@@ -114,9 +125,9 @@ def run(cfg: Config) -> dict[str, object]:
             cfg=cfg,
             loader=loader,
         )
-        _save_checkpoint(cfg.output_dir, next_index=index + 1, processed=processed)
+        _save_checkpoint(output_dir, next_index=index + 1, processed=processed)
 
-    return _summary(cfg.output_dir, cfg.start_index, end_index, processed)
+    return _summary(output_dir, cfg.start_index, end_index, processed)
 
 
 def main() -> int:
@@ -132,17 +143,13 @@ def main() -> int:
 
 
 def _load_urls(input_path: Path) -> list[str]:
-    payload = load_json_dict(input_path)
-    if payload is None:
-        payload = cast(
-            "dict[str, object]",
-            json.loads(input_path.read_text(encoding="utf-8")),
-        )
-    raw_urls = payload.get("urls")
-    if not isinstance(raw_urls, list):
-        message = "tool dump must contain a urls list"
-        raise TypeError(message)
-    return [url for url in raw_urls if isinstance(url, str)]
+    try:
+        return load_tool_dump_urls(input_path)
+    except InstagramError as exc:
+        if exc.code == ErrorCode.PARSE_INVALID_SHAPE:
+            message = "tool dump must contain a urls list"
+            raise InstagramError(message, code=ErrorCode.PARSE_INVALID_SHAPE) from exc
+        raise
 
 
 def _ensure_outputs(output_dir: Path, *, reset_output: bool) -> None:
@@ -170,11 +177,12 @@ def _process_url(
     cfg: Config,
     loader: Instaloader,
 ) -> int:
-    shortcode = post_url.rstrip("/").split("/")[-1]
+    shortcode = _shortcode_from_url(post_url)
     try:
         post = Post.from_shortcode(loader.context, shortcode)
-        _write_post_row(post, post_url, cfg.output_dir)
-        _write_comment_rows(post, cfg.output_dir)
+        output_dir = cfg.scraper.output.output_dir
+        _write_post_row(post, post_url, output_dir)
+        _write_comment_rows(post, output_dir)
         if cfg.download_media:
             loader.download_post(post, target=post.owner_username)
     except (
@@ -185,7 +193,7 @@ def _process_url(
         ValueError,
     ) as exc:
         append_csv_row(
-            cfg.output_dir / "errors.csv",
+            cfg.scraper.output.output_dir / "errors.csv",
             ERROR_HEADER,
             {
                 "index": index,
@@ -197,6 +205,15 @@ def _process_url(
         )
         return 0
     return 1
+
+
+def _shortcode_from_url(post_url: str) -> str:
+    parts = [part for part in urlsplit(post_url).path.split("/") if part]
+    shortcode = parts[-1] if parts else ""
+    if shortcode:
+        return shortcode
+    message = f"Unable to extract shortcode from {post_url}"
+    raise InstagramError(message, code=ErrorCode.INPUT_INVALID_URL)
 
 
 def _write_post_row(post: Post, post_url: str, output_dir: Path) -> None:

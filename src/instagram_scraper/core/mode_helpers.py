@@ -53,9 +53,13 @@ def _optional_path(kwargs: _ModeKwargs, key: str) -> Path | None:
     if value is None:
         return None
     if isinstance(value, Path):
-        return value
+        return None if value == Path() else value
     if isinstance(value, str):
-        return Path(value)
+        stripped = value.strip()
+        if not stripped:
+            return None
+        path = Path(stripped)
+        return None if path == Path() else path
     message = f"Expected optional path-like value for {key}"
     raise TypeError(message)
 
