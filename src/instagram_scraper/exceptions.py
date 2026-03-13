@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Self
 
+from instagram_scraper.error_codes import ErrorCode
+
 
 class InstagramError(Exception):
     """Base exception for all Instagram scraper errors.
@@ -18,8 +20,14 @@ class InstagramError(Exception):
     except clause.
     """
 
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: ErrorCode = ErrorCode.UNKNOWN,
+    ) -> None:
         """Initialize base InstagramError with a message."""
+        self.code = code
         super().__init__(message)
 
 

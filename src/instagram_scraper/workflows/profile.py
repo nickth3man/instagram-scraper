@@ -77,7 +77,11 @@ def comment_to_dict(
     created_at = getattr(comment, "created_at_utc", None)
     created_at_iso = created_at.isoformat() if created_at is not None else None
     return {
-        "id": str(getattr(comment, "id", "")),
+        "id": (
+            str(comment_id)
+            if (comment_id := getattr(comment, "id", None)) is not None
+            else None
+        ),
         "parent_id": str(parent_id) if parent_id is not None else None,
         "created_at_utc": created_at_iso,
         "text": getattr(comment, "text", None),

@@ -15,18 +15,29 @@ uv run instagram-scraper-download-videos <args>
 
 ### Testing
 ```bash
-# Run all tests
-uv run pytest
+# Run all tests (use python -m pytest on Windows due to uv path bug)
+uv run python -m pytest
 
 # Run specific test file
-uv run pytest tests/test_async_http.py
+uv run python -m pytest tests/test_async_http.py
 
 # Run with verbose output
-uv run pytest -v
+uv run python -m pytest -v
 
 # Run specific test
-uv run pytest tests/test_config.py::test_retry_config_defaults
+uv run python -m pytest tests/test_config.py::test_retry_config_defaults
 ```
+
+### File Size Guardrail
+
+Keep files under 650 lines:
+
+1. Run: `uv run python -m pytest tests/test_file_size.py -v`
+2. If tests fail, refactor large files into smaller modules
+3. Find natural split points - don't force arbitrary divisions
+4. Re-run tests until they pass
+
+Current results: {test_output}
 
 ### Linting and Type Checking
 ```bash

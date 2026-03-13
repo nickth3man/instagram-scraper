@@ -162,7 +162,9 @@ class TestRunExport:
         assert len(df) == 4
 
     def test_export_with_type_filter(
-        self, sample_data_dir: Path, temp_dir: Path,
+        self,
+        sample_data_dir: Path,
+        temp_dir: Path,
     ) -> None:
         output_path = temp_dir / "posts_only.csv"
         export_filter = ExportFilter(types=frozenset({"posts"}))

@@ -8,193 +8,25 @@ scraped Instagram data stored in NDJSON format.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from datetime import datetime
 from operator import itemgetter
 from typing import TYPE_CHECKING, cast, overload
+
+from instagram_scraper.reporting.types import (
+    DAY_NAMES,
+    ActivityMetrics,
+    ContentMetrics,
+    EngagementMetrics,
+    OverviewMetrics,
+    ProfileMetrics,
+    TemporalMetrics,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-DAY_NAMES = (
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class OverviewMetrics:
-    """High-level summary metrics for a profile.
-
-    Attributes
-    ----------
-    total_posts : int
-        Total number of posts analyzed.
-    total_comments : int
-        Total number of comments across all posts.
-    unique_users : int
-        Number of unique users who interacted.
-    date_range_start : datetime | None
-        Earliest post date.
-    date_range_end : datetime | None
-        Latest post date.
-    avg_likes_per_post : float
-        Average likes per post.
-    avg_comments_per_post : float
-        Average comments per post.
-    profile_name : str
-        Name of the profile being analyzed.
-
-    """
-
-    total_posts: int = 0
-    total_comments: int = 0
-    unique_users: int = 0
-    date_range_start: datetime | None = None
-    date_range_end: datetime | None = None
-    avg_likes_per_post: float = 0.0
-    avg_comments_per_post: float = 0.0
-    profile_name: str = "Unknown"
-
-
-@dataclass(frozen=True, slots=True)
-class EngagementMetrics:
-    """Engagement trend data over time.
-
-    Attributes
-    ----------
-    dates : list[str]
-        ISO date strings for each data point.
-    likes : list[int]
-        Total likes for each period.
-    comments : list[int]
-        Total comments for each period.
-    engagement_rate : list[float]
-        Engagement rate for each period.
-
-    """
-
-    dates: list[str] = field(default_factory=list)
-    likes: list[int] = field(default_factory=list)
-    comments: list[int] = field(default_factory=list)
-    engagement_rate: list[float] = field(default_factory=list)
-
-
-@dataclass(frozen=True, slots=True)
-class TemporalMetrics:
-    """Temporal posting patterns.
-
-    Attributes
-    ----------
-    hourly_distribution : dict[int, int]
-        Posts per hour (0-23).
-    daily_distribution : dict[str, int]
-        Posts per day of week.
-    best_posting_hour : int
-        Hour with highest engagement.
-    best_posting_day : str
-        Day with highest engagement.
-
-    """
-
-    hourly_distribution: dict[int, int] = field(default_factory=dict)
-    daily_distribution: dict[str, int] = field(default_factory=dict)
-    best_posting_hour: int = 12
-    best_posting_day: str = "Monday"
-
-
-@dataclass(frozen=True, slots=True)
-class ContentMetrics:
-    """Content analysis metrics.
-
-    Attributes
-    ----------
-    top_hashtags : list[tuple[str, int]]
-        Most used hashtags with counts.
-    media_types : dict[str, int]
-        Distribution of media types (image, video, carousel).
-    caption_length_avg : float
-        Average caption length.
-    posts_with_hashtags : int
-        Number of posts containing hashtags.
-    posts_with_mentions : int
-        Number of posts containing @mentions.
-
-    """
-
-    top_hashtags: list[tuple[str, int]] = field(default_factory=list)
-    media_types: dict[str, int] = field(default_factory=dict)
-    caption_length_avg: float = 0.0
-    posts_with_hashtags: int = 0
-    posts_with_mentions: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class ActivityMetrics:
-    """Posting activity over time.
-
-    Attributes
-    ----------
-    daily_posts : dict[str, int]
-        Posts per day (ISO date string).
-    weekly_posts : dict[str, int]
-        Posts per week (week identifier).
-    monthly_posts : dict[str, int]
-        Posts per month (YYYY-MM).
-
-    """
-
-    daily_posts: dict[str, int] = field(default_factory=dict)
-    weekly_posts: dict[str, int] = field(default_factory=dict)
-    monthly_posts: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class ProfileMetrics:
-    """Complete metrics for a single profile.
-
-    Attributes
-    ----------
-    overview : OverviewMetrics
-        High-level summary metrics.
-    engagement : EngagementMetrics
-        Engagement trend data.
-    temporal : TemporalMetrics
-        Temporal posting patterns.
-    content : ContentMetrics
-        Content analysis metrics.
-    activity : ActivityMetrics
-        Posting activity over time.
-
-    """
-
-    overview: OverviewMetrics = field(default_factory=OverviewMetrics)
-    engagement: EngagementMetrics = field(default_factory=EngagementMetrics)
-    temporal: TemporalMetrics = field(default_factory=TemporalMetrics)
-    content: ContentMetrics = field(default_factory=ContentMetrics)
-    activity: ActivityMetrics = field(default_factory=ActivityMetrics)
-
-
 def _extract_int(value: object) -> int:
-    """Extract an integer from a value, handling strings and ints.
-
-    Parameters
-    ----------
-    value : object
-        Value to extract integer from (int, str, or other).
-
-    Returns
-    -------
-    int
-        Extracted integer or 0 if invalid.
-
-    """
     if isinstance(value, int):
         return value
     if isinstance(value, str):
@@ -206,23 +38,9 @@ def _extract_int(value: object) -> int:
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
-    """Parse ISO format datetime string.
-
-    Parameters
-    ----------
-    value : str | None
-        ISO format datetime string.
-
-    Returns
-    -------
-    datetime | None
-        Parsed datetime or None if invalid.
-
-    """
     if not value:
         return None
     try:
-        # Handle both with and without timezone
         if value.endswith("Z"):
             value = f"{value[:-1]}+00:00"
         return datetime.fromisoformat(value)
@@ -231,31 +49,16 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
 
 
 def _get_week_identifier(dt: datetime) -> str:
-    """Get week identifier (YYYY-WXX) for a datetime.
-
-    Parameters
-    ----------
-    dt : datetime
-        Datetime to get week identifier for.
-
-    Returns
-    -------
-    str
-        Week identifier in format YYYY-WXX.
-
-    """
     iso_calendar = dt.isocalendar()
     return f"{iso_calendar[0]}-W{iso_calendar[1]:02d}"
 
 
 @overload
-def _increment_counter(counter: dict[str, int], key: str, amount: int = 1) -> None:
-    ...
+def _increment_counter(counter: dict[str, int], key: str, amount: int = 1) -> None: ...
 
 
 @overload
-def _increment_counter(counter: dict[int, int], key: int, amount: int = 1) -> None:
-    ...
+def _increment_counter(counter: dict[int, int], key: int, amount: int = 1) -> None: ...
 
 
 def _increment_counter(
@@ -263,7 +66,6 @@ def _increment_counter(
     key: str | int,
     amount: int = 1,
 ) -> None:
-    """Increment a dictionary-backed counter in place."""
     if isinstance(key, str):
         string_counter = cast("dict[str, int]", counter)
         string_counter[key] = string_counter.get(key, 0) + amount
@@ -275,14 +77,6 @@ def _increment_counter(
 def _iter_records_with_datetime(
     records: list[dict[str, object]],
 ) -> list[tuple[dict[str, object], datetime]]:
-    """Return records paired with successfully parsed timestamps.
-
-    Returns
-    -------
-    list[tuple[dict[str, object], datetime]]
-        Records with valid parsed datetimes.
-
-    """
     dated_records: list[tuple[dict[str, object], datetime]] = []
     for record in records:
         taken_at = record.get("taken_at_utc")
@@ -295,43 +89,14 @@ def _iter_records_with_datetime(
 
 
 def _empty_hourly_distribution() -> dict[int, int]:
-    """Build a zeroed 24-hour distribution.
-
-    Returns
-    -------
-    dict[int, int]
-        Hour keys 0-23 with zero counts.
-
-    """
     return dict.fromkeys(range(24), 0)
 
 
 def _empty_daily_distribution() -> dict[str, int]:
-    """Build a zeroed day-of-week distribution.
-
-    Returns
-    -------
-    dict[str, int]
-        Day-name keys with zero counts.
-
-    """
     return dict.fromkeys(DAY_NAMES, 0)
 
 
 def _extract_hashtags(text: str | None) -> list[str]:
-    """Extract hashtags from text.
-
-    Parameters
-    ----------
-    text : str | None
-        Text to extract hashtags from.
-
-    Returns
-    -------
-    list[str]
-        List of hashtags (without # prefix).
-
-    """
     if not text:
         return []
     hashtags: list[str] = []
@@ -357,19 +122,6 @@ def _extract_hashtags(text: str | None) -> list[str]:
 
 
 def _extract_mentions(text: str | None) -> list[str]:
-    """Extract @mentions from text.
-
-    Parameters
-    ----------
-    text : str | None
-        Text to extract mentions from.
-
-    Returns
-    -------
-    list[str]
-        List of usernames (without @ prefix).
-
-    """
     if not text:
         return []
     mentions: list[str] = []
@@ -395,18 +147,11 @@ def _extract_mentions(text: str | None) -> list[str]:
 
 
 def load_ndjson_records(input_path: Path) -> list[dict[str, object]]:
-    """Load all records from NDJSON files in a directory.
-
-    Parameters
-    ----------
-    input_path : Path
-        Directory containing NDJSON files.
+    """Load NDJSON records from all `.ndjson` files in a directory.
 
     Returns
     -------
-    list[dict[str, object]]
-        List of all records from all NDJSON files.
-
+        List of decoded record dictionaries.
     """
     records: list[dict[str, object]] = []
     if not input_path.exists():
@@ -436,20 +181,11 @@ def calculate_overview_metrics(
     records: list[dict[str, object]],
     profile_name: str = "Unknown",
 ) -> OverviewMetrics:
-    """Calculate overview metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
-    profile_name : str
-        Name of the profile being analyzed.
+    """Calculate overview totals for a profile dataset.
 
     Returns
     -------
-    OverviewMetrics
-        Calculated overview metrics.
-
+        Aggregate overview metrics for the supplied records.
     """
     total_posts = len(records)
     unique_users: set[str] = set()
@@ -491,20 +227,12 @@ def calculate_overview_metrics(
 def calculate_engagement_metrics(
     records: list[dict[str, object]],
 ) -> EngagementMetrics:
-    """Calculate engagement metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
+    """Calculate daily likes and comments for the dataset.
 
     Returns
     -------
-    EngagementMetrics
-        Calculated engagement metrics.
-
+        Engagement metrics grouped by date.
     """
-    # Group by date (YYYY-MM-DD)
     daily_likes: dict[str, int] = {}
     daily_comments: dict[str, int] = {}
 
@@ -525,8 +253,6 @@ def calculate_engagement_metrics(
     dates = sorted(daily_likes.keys())
     likes = [daily_likes[d] for d in dates]
     comments = [daily_comments[d] for d in dates]
-
-    # Engagement rate needs followers data (unavailable), return zeros
     engagement_rate = [0.0] * len(dates)
 
     return EngagementMetrics(
@@ -540,18 +266,11 @@ def calculate_engagement_metrics(
 def calculate_temporal_metrics(
     records: list[dict[str, object]],
 ) -> TemporalMetrics:
-    """Calculate temporal metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
+    """Calculate hourly and weekday posting distributions.
 
     Returns
     -------
-    TemporalMetrics
-        Calculated temporal metrics.
-
+        Temporal metrics derived from valid timestamps.
     """
     hourly_distribution = _empty_hourly_distribution()
     daily_distribution = _empty_daily_distribution()
@@ -560,7 +279,6 @@ def calculate_temporal_metrics(
         _increment_counter(hourly_distribution, dt.hour)
         _increment_counter(daily_distribution, dt.strftime("%A"))
 
-    # Find best posting hour and day
     best_posting_hour = max(hourly_distribution, key=lambda k: hourly_distribution[k])
     best_posting_day = max(daily_distribution, key=lambda k: daily_distribution[k])
 
@@ -575,18 +293,11 @@ def calculate_temporal_metrics(
 def calculate_content_metrics(
     records: list[dict[str, object]],
 ) -> ContentMetrics:
-    """Calculate content metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
+    """Calculate hashtag, mention, caption, and media-type metrics.
 
     Returns
     -------
-    ContentMetrics
-        Calculated content metrics.
-
+        Content metrics derived from captions and media metadata.
     """
     hashtag_counts: dict[str, int] = {}
     media_types: dict[str, int] = {}
@@ -595,32 +306,26 @@ def calculate_content_metrics(
     posts_with_mentions = 0
 
     for record in records:
-        # Extract hashtags from caption
         caption = record.get("caption")
         if caption and isinstance(caption, str):
             if hashtags := _extract_hashtags(caption):
                 posts_with_hashtags += 1
                 for tag in hashtags:
                     _increment_counter(hashtag_counts, tag)
-            # Count mentions
             mentions = _extract_mentions(caption)
             if mentions:
                 posts_with_mentions += 1
 
-            # Caption length
             caption_lengths.append(len(caption))
 
-        # Media type detection
         media_type = record.get("media_type")
         if media_type and isinstance(media_type, str):
             _increment_counter(media_types, media_type)
         elif record.get("is_video") is True:
             _increment_counter(media_types, "video")
         else:
-            # Assume image if not specified
             _increment_counter(media_types, "image")
 
-    # Top hashtags (sorted by count)
     top_hashtags = sorted(hashtag_counts.items(), key=itemgetter(1), reverse=True)
 
     avg_caption_length = (
@@ -639,18 +344,11 @@ def calculate_content_metrics(
 def calculate_activity_metrics(
     records: list[dict[str, object]],
 ) -> ActivityMetrics:
-    """Calculate activity metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
+    """Calculate daily, weekly, and monthly posting activity.
 
     Returns
     -------
-    ActivityMetrics
-        Calculated activity metrics.
-
+        Activity counts grouped by day, week, and month.
     """
     daily_posts: dict[str, int] = {}
     weekly_posts: dict[str, int] = {}
@@ -677,20 +375,11 @@ def calculate_all_metrics(
     records: list[dict[str, object]],
     profile_name: str = "Unknown",
 ) -> ProfileMetrics:
-    """Calculate all metrics from records.
-
-    Parameters
-    ----------
-    records : list[dict[str, object]]
-        List of record dictionaries.
-    profile_name : str
-        Name of the profile being analyzed.
+    """Calculate the full analytics bundle for a profile dataset.
 
     Returns
     -------
-    ProfileMetrics
-        Calculated metrics for the profile.
-
+        Complete profile metrics assembled from all sub-calculations.
     """
     overview = calculate_overview_metrics(records, profile_name)
     engagement = calculate_engagement_metrics(records)

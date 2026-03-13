@@ -14,6 +14,31 @@ follow graph, interactions, and stories modes.
 uv sync
 ```
 
+## Authentication
+
+Some modes require Instagram cookies, including `hashtag`, `location`,
+`followers`, `following`, `likers`, `commenters`, `stories`,
+`sync hashtag`, and `sync location`.
+
+Prefer setting `IG_COOKIE_HEADER` in your shell or a project-local `.env`
+file. The CLI and downloader load `.env` from the repository root
+automatically.
+
+```bash
+# .env
+IG_COOKIE_HEADER=sessionid=...
+```
+
+```bash
+# bash
+export IG_COOKIE_HEADER='sessionid=...'
+```
+
+```powershell
+# PowerShell
+$env:IG_COOKIE_HEADER = 'sessionid=...'
+```
+
 ## Run
 
 Run the package entrypoint:
@@ -28,18 +53,23 @@ Run unified scrape modes:
 uv run instagram-scraper scrape profile --username example
 uv run instagram-scraper scrape url --url https://www.instagram.com/p/example/
 uv run instagram-scraper scrape urls --input data/tool_dump.json
-uv run instagram-scraper scrape hashtag --hashtag cats --cookie-header "sessionid=..."
-uv run instagram-scraper scrape location --location nyc --cookie-header "sessionid=..."
-uv run instagram-scraper scrape followers --username example --cookie-header "sessionid=..."
-uv run instagram-scraper scrape stories --username example --cookie-header "sessionid=..."
+uv run instagram-scraper scrape hashtag --hashtag cats
+uv run instagram-scraper scrape location --location nyc
+uv run instagram-scraper scrape followers --username example
+uv run instagram-scraper scrape stories --username example
+uv run instagram-scraper sync hashtag --hashtag cats
+uv run instagram-scraper sync location --location nyc
 ```
+
+You can still use `--cookie-header` for one-off commands, but environment-based
+auth keeps secrets out of shell history and matches the repository defaults.
 
 Shared options implemented today:
 
 ```bash
 --output-dir
 --limit
---cookie-header
+--cookie-header  # optional override; prefer IG_COOKIE_HEADER or .env
 ```
 
 Additional mode-specific support:

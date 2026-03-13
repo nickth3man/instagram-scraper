@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +22,12 @@ from instagram_scraper.ui.gui import (
     build_scrape_kwargs,
     get_shared_settings,
 )
+
+WORKER_TIMEOUT_SECONDS = 1.0
+
+
+def _wait_for_worker(worker: ScraperWorker) -> None:
+    assert worker.wait_for_completion(WORKER_TIMEOUT_SECONDS)
 
 
 class TestScraperWorker:
@@ -54,9 +59,9 @@ class TestScraperWorker:
             mock_execute.return_value = MagicMock(model_dump=lambda: {"posts": 1})
 
             worker.start_scrape("profile", {"username": "test"})
-            time.sleep(0.1)  # Allow thread to start
 
             assert worker.is_running() or worker._thread is not None
+            _wait_for_worker(worker)
 
             worker.request_stop()
             assert worker._stop_event.is_set()
@@ -70,7 +75,7 @@ class TestScraperWorker:
             mock_execute.return_value = MagicMock(model_dump=lambda: {"posts": 1})
 
             worker.start_scrape("profile", {"username": "test"})
-            time.sleep(0.1)
+            _wait_for_worker(worker)
 
             # Check that execute_pipeline was called with cancellation_event
             mock_execute.assert_called_once()
@@ -261,9 +266,12 @@ class TestEventHandlers:
             },
         }
 
-        with patch("builtins.print"):
-            _handle_scrape_complete(mock_window, result)
+        _handle_scrape_complete(mock_window, result)
 
+        mock_window.__getitem__.return_value.update.assert_any_call(
+            "Scrape completed successfully!\n",
+            append=True,
+        )
         mock_window.__getitem__.assert_any_call("-STATUS-TEXT-")
 
     def test_handle_scrape_error_with_type(self) -> None:
@@ -276,9 +284,12 @@ class TestEventHandlers:
             "retry_after": 60,
         }
 
-        with patch("builtins.print"):
-            _handle_scrape_error(mock_window, result)
+        _handle_scrape_error(mock_window, result)
 
+        mock_window.__getitem__.return_value.update.assert_any_call(
+            "Retry after: 60 seconds\n",
+            append=True,
+        )
         mock_window.__getitem__.assert_any_call("-STATUS-TEXT-")
 
     def test_handle_scrape_error_cancelled(self) -> None:
@@ -286,9 +297,12 @@ class TestEventHandlers:
         mock_window = MagicMock()
         result = {"error": "Cancelled", "cancelled": True}
 
-        with patch("builtins.print") as mock_print:
-            _handle_scrape_error(mock_window, result)
-            mock_print.assert_any_call("\nScrape cancelled by user.")
+        _handle_scrape_error(mock_window, result)
+
+        mock_window.__getitem__.return_value.update.assert_any_call(
+            "Scrape cancelled by user.\n",
+            append=True,
+        )
 
     def test_handle_progress_update_valid(self) -> None:
         """Test handling valid progress update."""
@@ -396,7 +410,7 @@ class TestErrorTypes:
             )
 
             worker.start_scrape("profile", {"username": "test"})
-            time.sleep(0.2)
+            _wait_for_worker(worker)
 
             mock_window.write_event_value.assert_called()
             call_args = mock_window.write_event_value.call_args[0]
@@ -415,7 +429,7 @@ class TestErrorTypes:
             mock_execute.side_effect = AuthenticationError("Invalid cookie")
 
             worker.start_scrape("profile", {"username": "test"})
-            time.sleep(0.2)
+            _wait_for_worker(worker)
 
             mock_window.write_event_value.assert_called()
             call_args = mock_window.write_event_value.call_args[0]
@@ -431,7 +445,7 @@ class TestErrorTypes:
             mock_execute.side_effect = PipelineCancelledError()
 
             worker.start_scrape("profile", {"username": "test"})
-            time.sleep(0.2)
+            _wait_for_worker(worker)
 
             mock_window.write_event_value.assert_called()
             call_args = mock_window.write_event_value.call_args[0]

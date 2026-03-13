@@ -20,6 +20,19 @@ class Base(DeclarativeBase):
     """Base class for store ORM models."""
 
 
+SCHEMA_VERSION_KEY = "schema_version"
+CURRENT_SCHEMA_VERSION = 1
+
+
+class StoreMetadata(Base):
+    """Small key/value metadata rows for schema governance."""
+
+    __tablename__ = "store_metadata"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255))
+
+
 class TargetState(Base):
     """Stored support-state record for a normalized target."""
 
@@ -39,6 +52,9 @@ class SyncState(Base):
 
     __tablename__ = "sync_state"
 
+    # This is intentionally not a foreign key to ``TargetState.normalized_key``.
+    # Sync bookkeeping must be able to track a target before or independently of
+    # any normalized target rows written during one-shot pipelines.
     target_key: Mapped[str] = mapped_column(String(255), primary_key=True)
     last_scraped_at: Mapped[datetime | None]
     last_post_date: Mapped[datetime | None]
@@ -68,6 +84,17 @@ class MetadataStore:
         with Session(self.engine) as session:
             return session.scalar(select(func.count()).select_from(TargetState)) or 0
 
+    def schema_version(self) -> int:
+        """Return the current schema version recorded in the store.
+
+        Returns
+        -------
+        int
+            The integer schema version stored in SQLite metadata.
+
+        """
+        return _detect_schema_version(self.engine)
+
 
 def create_store(path: Path) -> MetadataStore:
     """Create a metadata store backed by the given SQLite file.
@@ -78,9 +105,66 @@ def create_store(path: Path) -> MetadataStore:
         A ready-to-use metadata store instance.
 
     """
+    path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{path}")
-    Base.metadata.create_all(engine)
+    _bootstrap_schema(engine)
     return MetadataStore(engine=engine)
+
+
+def _bootstrap_schema(engine: Engine) -> None:
+    Base.metadata.create_all(engine)
+    existing_version = _detect_schema_version_or_none(engine)
+    if existing_version is None:
+        _set_schema_version(engine, CURRENT_SCHEMA_VERSION)
+        return
+    if existing_version > CURRENT_SCHEMA_VERSION:
+        message = (
+            "Unsupported schema version "
+            f"{existing_version}; current version is {CURRENT_SCHEMA_VERSION}"
+        )
+        raise RuntimeError(message)
+    if existing_version < CURRENT_SCHEMA_VERSION:
+        _migrate_schema(engine, existing_version)
+
+
+def _detect_schema_version(engine: Engine) -> int:
+    version = _detect_schema_version_or_none(engine)
+    if version is None:
+        message = "Schema version metadata is missing"
+        raise RuntimeError(message)
+    return version
+
+
+def _detect_schema_version_or_none(engine: Engine) -> int | None:
+    with Session(engine) as session:
+        record = session.get(StoreMetadata, SCHEMA_VERSION_KEY)
+        if record is None:
+            return None
+        try:
+            return int(record.value)
+        except ValueError as exc:
+            message = f"Invalid schema version metadata: {record.value!r}"
+            raise RuntimeError(message) from exc
+
+
+def _set_schema_version(engine: Engine, version: int) -> None:
+    with Session(engine) as session:
+        record = session.get(StoreMetadata, SCHEMA_VERSION_KEY)
+        if record is None:
+            session.add(StoreMetadata(key=SCHEMA_VERSION_KEY, value=str(version)))
+        else:
+            record.value = str(version)
+        session.commit()
+
+
+def _migrate_schema(engine: Engine, current_version: int) -> None:
+    if current_version == CURRENT_SCHEMA_VERSION:
+        return
+    if current_version < CURRENT_SCHEMA_VERSION:
+        _set_schema_version(engine, CURRENT_SCHEMA_VERSION)
+        return
+    message = f"Unsupported schema migration path from version {current_version}"
+    raise RuntimeError(message)
 
 
 def record_target(store: MetadataStore, *, kind: str, normalized_key: str) -> None:

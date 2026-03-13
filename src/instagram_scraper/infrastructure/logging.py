@@ -126,8 +126,8 @@ def configure_logging(
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    out_stream = stream if stream is not None else sys.stderr
-    handler = logging.StreamHandler(out_stream)  # type: ignore[arg-type]
+    out_stream: TextIO = stream if stream is not None else sys.stderr
+    handler = logging.StreamHandler(out_stream)
     if json_format:
         handler.setFormatter(JSONFormatter())
     else:

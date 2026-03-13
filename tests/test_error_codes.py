@@ -1,11 +1,4 @@
-import pathlib
-import sys
-
-ROOT = pathlib.Path(pathlib.Path(__file__).parent).parent
-SRC = ROOT / "src"
-sys.path.insert(0, str(SRC))
-
-from instagram_scraper.error_codes import (  # noqa: E402
+from instagram_scraper.error_codes import (
     ErrorCode,
     error_code_from_exception,
     error_code_from_status,
@@ -40,6 +33,9 @@ def test_error_code_values() -> None:
         "FILE_WRITE_ERROR": "file_write_error",
         "FILE_READ_ERROR": "file_read_error",
         "FILE_EMPTY": "file_empty",
+        "INVALID_ARTIFACT": "invalid_artifact",
+        "AUDIT_FAILURE": "audit_failure",
+        "MISSING_EXPORT_FILE": "missing_export_file",
         "INPUT_MISSING_SHORTCODE": "input_missing_shortcode",
         "INPUT_MISSING_MEDIA_ID": "input_missing_media_id",
         "INPUT_INVALID_URL": "input_invalid_url",

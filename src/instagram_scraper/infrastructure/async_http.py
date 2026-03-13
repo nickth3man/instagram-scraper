@@ -53,14 +53,17 @@ class _AsyncSessionLike(Protocol):
     ) -> _AsyncResponseLike: ...
 
 
-DEFAULT_USER_AGENT = os.getenv(
-    "INSTAGRAM_USER_AGENT",
-    (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/133.0.0.0 Safari/537.36"
-    ),
-)
+def _default_user_agent() -> str:
+    return os.getenv(
+        "INSTAGRAM_USER_AGENT",
+        (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/133.0.0.0 Safari/537.36"
+        ),
+    )
+
+
 SUCCESS_STATUS = 200
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 SYSTEM_RANDOM = SystemRandom()
@@ -111,7 +114,7 @@ def build_async_instagram_session(
     connector = aiohttp.TCPConnector(limit=limit, limit_per_host=limit_per_host)
 
     headers = {
-        "User-Agent": DEFAULT_USER_AGENT,
+        "User-Agent": _default_user_agent(),
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.instagram.com/",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -101,19 +102,13 @@ def get_exporter(format_name: str, output_path: Path) -> Exporter:
         Raised when an unsupported format is requested.
 
     """
-    # Lazy imports to avoid circular dependency
-    from instagram_scraper.exporters.csv_exporter import CsvExporter  # noqa: PLC0415
-    from instagram_scraper.exporters.excel_exporter import (  # noqa: PLC0415
-        ExcelExporter,
-    )
-    from instagram_scraper.exporters.parquet_exporter import (  # noqa: PLC0415
-        ParquetExporter,
-    )
-
-    exporters: dict[str, type[Exporter]] = {
-        "csv": CsvExporter,
-        "excel": ExcelExporter,
-        "parquet": ParquetExporter,
+    exporters: dict[str, tuple[str, str]] = {
+        "csv": ("instagram_scraper.exporters.csv_exporter", "CsvExporter"),
+        "excel": ("instagram_scraper.exporters.excel_exporter", "ExcelExporter"),
+        "parquet": (
+            "instagram_scraper.exporters.parquet_exporter",
+            "ParquetExporter",
+        ),
     }
 
     normalized = format_name.lower().strip()
@@ -122,5 +117,6 @@ def get_exporter(format_name: str, output_path: Path) -> Exporter:
         message = f"Unsupported format '{format_name}'. Available formats: {available}"
         raise ValueError(message)
 
-    exporter_class = exporters[normalized]
+    module_name, class_name = exporters[normalized]
+    exporter_class = getattr(import_module(module_name), class_name)
     return exporter_class(output_path)
