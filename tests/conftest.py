@@ -24,6 +24,14 @@ DEFAULT_SHARED_OPTIONS = {
     "browser_html": False,
 }
 
+DEFAULT_BROWSER_SESSION_OPTIONS = {
+    "cookies_file": None,
+    "storage_state": None,
+    "user_data_dir": None,
+    "headed": False,
+    "timeout_ms": 30000,
+}
+
 
 @pytest.fixture
 def mock_pipeline() -> Generator[MagicMock]:

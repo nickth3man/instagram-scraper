@@ -9,7 +9,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from instagram_scraper.cli import STORIES_SEED_MESSAGE, app
-from tests.conftest import DEFAULT_SHARED_OPTIONS, runner
+from tests.conftest import (
+    DEFAULT_BROWSER_SESSION_OPTIONS,
+    DEFAULT_SHARED_OPTIONS,
+    runner,
+)
 
 # Test scrape_profile command
 
@@ -59,6 +63,7 @@ def test_scrape_url_success(mock_pipeline: MagicMock) -> None:
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "post_url": "https://www.instagram.com/p/ABC123/",
         "output_dir": None,
         "cookie_header": "",
@@ -83,6 +88,7 @@ def test_scrape_url_with_cookie(mock_pipeline: MagicMock) -> None:
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "post_url": "https://www.instagram.com/p/ABC123/",
         "output_dir": None,
         "cookie_header": "sessionid=abc123",
@@ -101,6 +107,7 @@ def test_scrape_url_uses_env_cookie_default(mock_pipeline: MagicMock) -> None:
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "post_url": "https://www.instagram.com/p/ABC123/",
         "output_dir": None,
         "cookie_header": "sessionid=env-cookie",
@@ -130,6 +137,7 @@ def test_scrape_urls_success(mock_pipeline: MagicMock, tmp_path: Path) -> None:
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "input_path": input_file,
         "output_dir": None,
         "resume": False,
@@ -155,6 +163,7 @@ def test_scrape_urls_with_resume_and_reset(
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "input_path": input_file,
         "output_dir": None,
         "resume": True,
@@ -186,6 +195,7 @@ def test_scrape_urls_browser_html_options(
     assert result.exit_code == 0
     expected = {
         **DEFAULT_SHARED_OPTIONS,
+        **DEFAULT_BROWSER_SESSION_OPTIONS,
         "input_path": input_file,
         "output_dir": None,
         "resume": False,

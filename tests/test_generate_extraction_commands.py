@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from instagram_scraper.error_codes import ErrorCode
+from instagram_scraper.exceptions import InstagramError
 from instagram_scraper.workflows import generate_extraction_commands
 
 
@@ -31,5 +33,6 @@ def test_main_rejects_non_list_urls(tmp_path) -> None:
     input_path = tmp_path / "tool_dump.json"
     input_path.write_text('{"urls": "not-a-list"}', encoding="utf-8")
 
-    with pytest.raises(TypeError, match="Expected 'urls' to be a list"):
+    with pytest.raises(InstagramError, match="Expected 'urls' to be a list") as exc:
         generate_extraction_commands.main(["--input", str(input_path)])
+    assert exc.value.code == ErrorCode.PARSE_INVALID_SHAPE

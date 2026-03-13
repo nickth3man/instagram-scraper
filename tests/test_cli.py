@@ -50,6 +50,7 @@ def test_configure_scrape_default_values(
         request_timeout=30,
         max_retries=5,
         checkpoint_every=20,
+        browser_html=False,
     )
 
     assert mock_context.obj == DEFAULT_SHARED_OPTIONS
@@ -68,6 +69,7 @@ def test_configure_scrape_with_raw_captures(
         request_timeout=60,
         max_retries=10,
         checkpoint_every=50,
+        browser_html=False,
     )
 
     assert mock_context.obj == {
