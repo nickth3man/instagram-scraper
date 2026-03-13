@@ -30,7 +30,7 @@ uv run python -m pytest tests/test_config.py::test_retry_config_defaults
 
 ### File Size Guardrail
 
-Keep files under 650 lines:
+Keep files under 550 lines:
 
 1. Run: `uv run python -m pytest tests/test_file_size.py -v`
 2. If tests fail, refactor large files into smaller modules

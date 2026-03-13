@@ -1,6 +1,6 @@
 from pathlib import Path
 
-MAX_PYTHON_FILE_LINES = 650
+MAX_PYTHON_FILE_LINES = 550
 PROJECT_DIRECTORIES = ("src", "tests", "scripts")
 SKIP_DIRECTORY_NAMES = {"__pycache__", ".venv", ".git"}
 
